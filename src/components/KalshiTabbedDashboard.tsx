@@ -18,6 +18,8 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from 'recharts'
+import { HorizonStatusMatrix } from './HorizonStatusMatrix'
+import { useClockTick } from '../hooks/useClockTick'
 import { APP_VERSION } from '../lib/appVersion'
 import {
   DEPLOY_CHANNEL,
@@ -116,16 +118,6 @@ function BucketToggle({
       ))}
     </div>
   )
-}
-
-function useClockTick(intervalMs: number, enabled = true): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!enabled) return
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs)
-    return () => window.clearInterval(id)
-  }, [intervalMs, enabled])
-  return now
 }
 
 function CloseCountdown({ closeIso, paused }: { closeIso: string; paused?: boolean }) {
@@ -786,6 +778,7 @@ export function KalshiTabbedDashboard() {
         ) : (
           <TradingLabsPanel />
         )}
+        <HorizonStatusMatrix />
       </main>
 
       <footer className="border-t border-slate-900 py-4 text-center font-mono text-[10px] text-slate-600">

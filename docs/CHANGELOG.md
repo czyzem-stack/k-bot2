@@ -2,7 +2,7 @@
 
 ## 0.0.0.15
 
-- _(active dev line — add features here)_
+- **Horizon matrix** (bottom of dashboard): multi-ticker 15m vs 1h grid with alignment badges, isolated countdowns, strike/probability, and bot exposure
 
 ## 0.0.0.14
 
