@@ -3,6 +3,7 @@
 ## 0.0.0.15
 
 - **Horizon matrix** (bottom of dashboard): multi-ticker 15m vs 1h grid with alignment badges, isolated countdowns, strike/probability, and bot exposure
+- **Candle chart:** per-asset tabs, timeframe sub-tabs (Intraday, D/D, W/W, M/M, Y/Y), Binance spot OHLC via proxy
 
 ## 0.0.0.14
 

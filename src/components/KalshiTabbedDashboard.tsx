@@ -18,6 +18,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from 'recharts'
+import { AssetCandleChartPanel } from './AssetCandleChartPanel'
 import { HorizonStatusMatrix } from './HorizonStatusMatrix'
 import { useClockTick } from '../hooks/useClockTick'
 import { APP_VERSION } from '../lib/appVersion'
@@ -778,6 +779,7 @@ export function KalshiTabbedDashboard() {
         ) : (
           <TradingLabsPanel />
         )}
+        <AssetCandleChartPanel />
         <HorizonStatusMatrix />
       </main>
 
