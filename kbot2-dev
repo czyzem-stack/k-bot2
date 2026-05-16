@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Run from anywhere: ~/k-bot2/kbot2-dev   (or add ~/k-bot2 to PATH → kbot2-dev)
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+exec bash scripts/dev-all.sh "$@"

@@ -14,8 +14,23 @@ Kalshi crypto **paper-trading dashboard**: live market explorer (15m + hourly) a
 
 ## Run locally
 
+**From the project folder** (`~/k-bot2`):
+
 ```bash
-npm run dev:all      # one script: worktree + install + both servers
+cd ~/k-bot2
+npm run dev:all
+```
+
+**From anywhere** (after `chmod +x ~/k-bot2/kbot2-dev` once):
+
+```bash
+~/k-bot2/kbot2-dev
+```
+
+Optional — add to `~/.zshrc` so `kbot2-dev` works in any terminal:
+
+```bash
+export PATH="$HOME/k-bot2:$PATH"
 ```
 
 | URL | Branch |

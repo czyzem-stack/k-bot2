@@ -10,6 +10,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ ! -f "$ROOT/package.json" ]]; then
+  echo "error: k-bot2 not found at $ROOT" >&2
+  echo "Run from the project folder:  cd ~/k-bot2 && npm run dev:all" >&2
+  echo "Or from anywhere:            ~/k-bot2/kbot2-dev" >&2
+  exit 1
+fi
 MAIN_WT="$ROOT/worktrees/main"
 MAIN_PORT=5173
 DEV_PORT=5174
