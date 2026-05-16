@@ -12,10 +12,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/kalshi-api/, '/trade-api/v2'),
       },
-      '/binance-api': {
-        target: 'https://api.binance.com',
+      '/kraken-api': {
+        target: 'https://api.kraken.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/binance-api/, '/api/v3'),
+        rewrite: (path) => path.replace(/^\/kraken-api/, '/0/public'),
       },
     },
   },

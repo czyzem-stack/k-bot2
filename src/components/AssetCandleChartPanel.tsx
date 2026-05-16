@@ -208,7 +208,7 @@ export const AssetCandleChartPanel = memo(function AssetCandleChartPanel() {
             Spot candles
           </h2>
           <p className="mt-1 font-mono text-[11px] text-slate-500">
-            {config?.spotPair ?? '—'} · Binance spot reference (not Kalshi contract prices)
+            {config?.krakenPair ?? '—'} · Kraken spot reference (not Kalshi contract prices)
           </p>
         </div>
         {last ? (

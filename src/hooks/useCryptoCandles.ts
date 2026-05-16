@@ -3,7 +3,8 @@ import {
   ASSET_CHART_CONFIGS,
   fetchCryptoCandles,
   invalidateCandleCache,
-  prefetchCandlesForPair,
+  krakenPairForSymbol,
+  prefetchCandlesForSymbol,
   readCandleCache,
   type AssetChartConfig,
   type CandleTimeframeId,
@@ -19,17 +20,17 @@ type CandleState = {
 }
 
 type Action =
-  | { type: 'select'; pair: string; timeframe: CandleTimeframeId; refreshKey: number }
+  | { type: 'select'; symbol: string; timeframe: CandleTimeframeId; refreshKey: number }
   | { type: 'fetching' }
   | { type: 'success'; candles: OhlcCandle[] }
   | { type: 'failure'; message: string }
   | { type: 'no_config'; symbol: string }
 
-function initFromCache(pair: string, timeframe: CandleTimeframeId): CandleState {
-  if (!pair) {
+function initFromCache(symbol: string, timeframe: CandleTimeframeId): CandleState {
+  if (!krakenPairForSymbol(symbol)) {
     return { candles: [], loading: false, fetching: false, error: null }
   }
-  const cached = readCandleCache(pair, timeframe)
+  const cached = readCandleCache(symbol, timeframe)
   return {
     candles: cached ?? [],
     loading: !cached,
@@ -45,10 +46,10 @@ function reducer(state: CandleState, action: Action): CandleState {
         candles: [],
         loading: false,
         fetching: false,
-        error: `No chart config for ${action.symbol}`,
+        error: `No Kraken spot pair for ${action.symbol}`,
       }
     case 'select': {
-      const cached = readCandleCache(action.pair, action.timeframe)
+      const cached = readCandleCache(action.symbol, action.timeframe)
       if (cached) {
         return {
           candles: cached,
@@ -88,26 +89,25 @@ export function useCryptoCandles(symbol: string, timeframe: CandleTimeframeId) {
   const config: AssetChartConfig | undefined = ASSET_CHART_CONFIGS.find(
     (c) => c.symbol === symbol,
   )
-  const pair = config?.spotPair ?? ''
 
   const [state, dispatch] = useReducer(
     reducer,
-    { pair, timeframe },
-    ({ pair: p, timeframe: tf }) => initFromCache(p, tf),
+    { symbol, timeframe },
+    ({ symbol: s, timeframe: tf }) => initFromCache(s, tf),
   )
 
   const requestIdRef = useRef(0)
   const [refreshKey, bumpRefresh] = useReducer((n: number) => n + 1, 0)
 
   useEffect(() => {
-    if (!pair) {
+    if (!config?.krakenPair) {
       dispatch({ type: 'no_config', symbol })
       return
     }
 
-    dispatch({ type: 'select', pair, timeframe, refreshKey })
+    dispatch({ type: 'select', symbol, timeframe, refreshKey })
 
-    const cached = readCandleCache(pair, timeframe)
+    const cached = readCandleCache(symbol, timeframe)
     if (cached && refreshKey === 0) {
       return
     }
@@ -116,10 +116,10 @@ export function useCryptoCandles(symbol: string, timeframe: CandleTimeframeId) {
     const ac = new AbortController()
     dispatch({ type: 'fetching' })
 
-    void fetchCryptoCandles(pair, timeframe, ac.signal)
+    void fetchCryptoCandles(symbol, timeframe, ac.signal)
       .then((data) => {
         if (ac.signal.aborted || requestId !== requestIdRef.current) return
-        writeCandleCache(pair, timeframe, data)
+        writeCandleCache(symbol, timeframe, data)
         dispatch({ type: 'success', candles: data })
       })
       .catch((e) => {
@@ -131,12 +131,12 @@ export function useCryptoCandles(symbol: string, timeframe: CandleTimeframeId) {
       })
 
     return () => ac.abort()
-  }, [pair, timeframe, refreshKey, symbol])
+  }, [symbol, timeframe, refreshKey, config?.krakenPair])
 
   useEffect(() => {
-    if (!pair) return
-    prefetchCandlesForPair(pair)
-  }, [pair])
+    if (!config?.krakenPair) return
+    prefetchCandlesForSymbol(symbol)
+  }, [symbol, config?.krakenPair])
 
   return {
     candles: state.candles,
@@ -146,7 +146,7 @@ export function useCryptoCandles(symbol: string, timeframe: CandleTimeframeId) {
     config,
     assetConfigs: ASSET_CHART_CONFIGS,
     refresh: () => {
-      if (pair) invalidateCandleCache(pair, timeframe)
+      invalidateCandleCache(symbol, timeframe)
       bumpRefresh()
     },
   }

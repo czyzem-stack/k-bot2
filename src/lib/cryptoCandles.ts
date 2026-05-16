@@ -5,16 +5,17 @@ export type CandleTimeframeId = 'intraday' | 'dd' | 'ww' | 'mm' | 'yy'
 export interface CandleTimeframeConfig {
   id: CandleTimeframeId
   label: string
-  interval: string
+  /** Kraken OHLC interval (minutes). */
+  krakenInterval: number
   limit: number
 }
 
 export const CANDLE_TIMEFRAMES: CandleTimeframeConfig[] = [
-  { id: 'intraday', label: 'Intraday', interval: '5m', limit: 288 },
-  { id: 'dd', label: 'D/D', interval: '1d', limit: 90 },
-  { id: 'ww', label: 'W/W', interval: '1w', limit: 52 },
-  { id: 'mm', label: 'M/M', interval: '1M', limit: 24 },
-  { id: 'yy', label: 'Y/Y', interval: '1M', limit: 60 },
+  { id: 'intraday', label: 'Intraday', krakenInterval: 5, limit: 288 },
+  { id: 'dd', label: 'D/D', krakenInterval: 1440, limit: 90 },
+  { id: 'ww', label: 'W/W', krakenInterval: 10080, limit: 52 },
+  { id: 'mm', label: 'M/M', krakenInterval: 1440, limit: 30 },
+  { id: 'yy', label: 'Y/Y', krakenInterval: 1440, limit: 365 },
 ]
 
 export interface OhlcCandle {
@@ -30,63 +31,70 @@ export interface OhlcCandle {
 export interface AssetChartConfig {
   symbol: string
   label: string
-  spotPair: string
+  krakenPair: string
 }
 
-const DEFAULT_BINANCE_BASE = '/binance-api'
+const DEFAULT_KRAKEN_BASE = '/kraken-api'
 
-function binanceBase(): string {
-  const env = import.meta.env.VITE_BINANCE_API_BASE as string | undefined
-  return (env && env.replace(/\/$/, '')) || DEFAULT_BINANCE_BASE
+function krakenBase(): string {
+  const env = import.meta.env.VITE_KRAKEN_API_BASE as string | undefined
+  return (env && env.replace(/\/$/, '')) || DEFAULT_KRAKEN_BASE
 }
 
-/** Spot USDT pair for charting — generic mapping, not hardcoded per UI row. */
-export function spotPairForSymbol(symbol: string): string {
-  return `${symbol.toUpperCase()}USDT`
+const KRAKEN_PAIR_BY_SYMBOL: Record<string, string> = {
+  BTC: 'XBTUSD',
+  ETH: 'ETHUSD',
+  SOL: 'SOLUSD',
+  XRP: 'XRPUSD',
+  DOGE: 'DOGEUSD',
+  BNB: 'BNBUSD',
+  HYPE: 'HYPEUSD',
 }
+
+export function krakenPairForSymbol(symbol: string): string | null {
+  return KRAKEN_PAIR_BY_SYMBOL[symbol.toUpperCase()] ?? null
+}
+
+export const ASSET_CHART_CONFIGS: AssetChartConfig[] = KALSHI_CRYPTO_ASSETS.map((a) => ({
+  symbol: a.symbol,
+  label: a.label,
+  krakenPair: krakenPairForSymbol(a.symbol) ?? '',
+}))
 
 export function assetChartConfigs(): AssetChartConfig[] {
   return ASSET_CHART_CONFIGS
 }
 
-/** Stable configs — avoids effect loops from new object identity each render. */
-export const ASSET_CHART_CONFIGS: AssetChartConfig[] = KALSHI_CRYPTO_ASSETS.map((a) => ({
-  symbol: a.symbol,
-  label: a.label,
-  spotPair: spotPairForSymbol(a.symbol),
-}))
-
 const CACHE_TTL_MS = 120_000
 const candleCache = new Map<string, { at: number; candles: OhlcCandle[] }>()
 
-export function cacheKey(pair: string, tf: CandleTimeframeId): string {
-  return `${pair}:${tf}`
+export function cacheKey(symbol: string, tf: CandleTimeframeId): string {
+  return `${symbol}:${tf}`
 }
 
-export function readCandleCache(pair: string, tf: CandleTimeframeId): OhlcCandle[] | null {
-  const hit = candleCache.get(cacheKey(pair, tf))
+export function readCandleCache(symbol: string, tf: CandleTimeframeId): OhlcCandle[] | null {
+  const hit = candleCache.get(cacheKey(symbol, tf))
   if (!hit || Date.now() - hit.at >= CACHE_TTL_MS) return null
   return hit.candles
 }
 
-export function writeCandleCache(pair: string, tf: CandleTimeframeId, candles: OhlcCandle[]): void {
+export function writeCandleCache(symbol: string, tf: CandleTimeframeId, candles: OhlcCandle[]): void {
   if (!candles.length) {
-    candleCache.delete(cacheKey(pair, tf))
+    candleCache.delete(cacheKey(symbol, tf))
     return
   }
-  candleCache.set(cacheKey(pair, tf), { at: Date.now(), candles })
+  candleCache.set(cacheKey(symbol, tf), { at: Date.now(), candles })
 }
 
-export function invalidateCandleCache(pair: string, tf: CandleTimeframeId): void {
-  candleCache.delete(cacheKey(pair, tf))
+export function invalidateCandleCache(symbol: string, tf: CandleTimeframeId): void {
+  candleCache.delete(cacheKey(symbol, tf))
 }
 
-/** Warm cache for other horizons so tab switches feel instant. */
-export function prefetchCandlesForPair(pair: string): void {
+export function prefetchCandlesForSymbol(symbol: string): void {
   for (const tf of CANDLE_TIMEFRAMES) {
-    if (readCandleCache(pair, tf.id)) continue
-    void fetchCryptoCandles(pair, tf.id)
-      .then((data) => writeCandleCache(pair, tf.id, data))
+    if (readCandleCache(symbol, tf.id)) continue
+    void fetchCryptoCandles(symbol, tf.id)
+      .then((data) => writeCandleCache(symbol, tf.id, data))
       .catch(() => {})
   }
 }
@@ -102,59 +110,53 @@ function formatCandleLabel(ts: number, timeframe: CandleTimeframeId): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-type BinanceKline = [
-  number,
-  string,
-  string,
-  string,
-  string,
-  string,
-  number,
-  string,
-  number,
-  string,
-  string,
-  string,
-]
+type KrakenOhlcResponse = {
+  error?: string[]
+  result?: Record<string, number[][] | number>
+}
 
 export async function fetchCryptoCandles(
-  spotPair: string,
+  symbol: string,
   timeframeId: CandleTimeframeId,
   signal?: AbortSignal,
 ): Promise<OhlcCandle[]> {
   const tf = CANDLE_TIMEFRAMES.find((t) => t.id === timeframeId)
   if (!tf) throw new Error(`Unknown timeframe: ${timeframeId}`)
 
+  const pair = krakenPairForSymbol(symbol)
+  if (!pair) throw new Error(`No Kraken pair for ${symbol}`)
+
   const qs = new URLSearchParams({
-    symbol: spotPair,
-    interval: tf.interval,
-    limit: String(tf.limit),
+    pair,
+    interval: String(tf.krakenInterval),
   })
-  const url = `${binanceBase()}/klines?${qs.toString()}`
+  const url = `${krakenBase()}/OHLC?${qs.toString()}`
   const res = await fetch(url, { signal })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(
-      `Candles ${res.status}${body ? ` — ${body.slice(0, 120)}` : ''}`,
-    )
+    throw new Error(`Candles ${res.status}${body ? ` — ${body.slice(0, 120)}` : ''}`)
   }
 
-  const raw = (await res.json()) as BinanceKline[]
-  return raw.map((k) => {
-    const ts = k[0]
-    const open = Number(k[1])
-    const high = Number(k[2])
-    const low = Number(k[3])
-    const close = Number(k[4])
-    const volume = Number(k[5])
+  const json = (await res.json()) as KrakenOhlcResponse
+  if (json.error?.length) {
+    throw new Error(json.error.join('; '))
+  }
+
+  const resultKey = Object.keys(json.result ?? {}).find((k) => k !== 'last')
+  const rows = resultKey ? (json.result![resultKey] as number[][]) : []
+  if (!rows.length) throw new Error(`No OHLC rows for ${pair}`)
+
+  const slice = rows.slice(-tf.limit)
+  return slice.map((k) => {
+    const ts = k[0] * 1000
     return {
       ts,
       label: formatCandleLabel(ts, timeframeId),
-      open,
-      high,
-      low,
-      close,
-      volume,
+      open: k[1],
+      high: k[2],
+      low: k[3],
+      close: k[4],
+      volume: k[6],
     }
   })
 }

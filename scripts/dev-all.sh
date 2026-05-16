@@ -51,8 +51,19 @@ ensure_worktree() {
   if [[ ! -e "$MAIN_WT/.git" ]]; then
     echo "→ git worktree add worktrees/main @ main"
     git -C "$ROOT" fetch origin main 2>/dev/null || true
-    git -C "$ROOT" worktree add "$MAIN_WT" main
+    git -C "$ROOT" worktree add -B main "$MAIN_WT" origin/main 2>/dev/null \
+      || git -C "$ROOT" worktree add "$MAIN_WT" main
   fi
+  local wt_branch
+  wt_branch="$(git -C "$MAIN_WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+  if [[ "$wt_branch" != "main" ]]; then
+    echo "→ worktrees/main: pinning to main (was $wt_branch)"
+    git -C "$MAIN_WT" checkout main 2>/dev/null || true
+  fi
+}
+
+main_has_file() {
+  git -C "$MAIN_WT" cat-file -e "HEAD:$1" 2>/dev/null
 }
 
 ensure_deps() {
@@ -112,7 +123,13 @@ case "$MODE" in
     ;;
   both)
     echo "  main  http://localhost:$MAIN_PORT   LIVE · v$MAIN_VER · $MAIN_BRANCH"
+    if main_has_file src/components/AssetCandleChartPanel.tsx; then
+      echo "        (main includes dev chart — run: git -C worktrees/main checkout origin/main)"
+    else
+      echo "        (stable main — no dev-only candle chart / matrix)"
+    fi
     echo "  dev   http://localhost:$DEV_PORT   DEV · v$DEV_VER · $DEV_BRANCH"
+    echo "        (latest features — candle chart, horizon matrix, etc.)"
     echo "  Ctrl+C stops both"
     echo ""
     run_vite "$MAIN_WT" "$MAIN_PORT" live &
