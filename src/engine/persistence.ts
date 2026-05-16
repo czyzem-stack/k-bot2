@@ -1,8 +1,10 @@
 import type {
   ActivityEntry,
+  CryptoSignalSymbol,
   EnvironmentState,
   EnvId,
   GlobalSettings,
+  Position,
   TradingEngineState,
 } from './types'
 import { LAB_IDS } from './types'
@@ -64,7 +66,11 @@ export function mergePersistedIntoBase(
   saved: Partial<PersistedShape>,
 ): TradingEngineState {
   const gs: GlobalSettings = saved.globalSettings
-    ? { ...base.globalSettings, ...saved.globalSettings }
+    ? {
+        ...base.globalSettings,
+        ...saved.globalSettings,
+        isTradingActive: saved.globalSettings.isTradingActive === true,
+      }
     : base.globalSettings
 
   const environments = { ...base.environments }
@@ -88,7 +94,12 @@ export function mergePersistedIntoBase(
             : seed.totalFeesPaid,
         wins: typeof incoming.wins === 'number' ? incoming.wins : seed.wins,
         losses: typeof incoming.losses === 'number' ? incoming.losses : seed.losses,
-        positions: Array.isArray(incoming.positions) ? incoming.positions : [],
+        positions: Array.isArray(incoming.positions)
+          ? (incoming.positions as Position[]).map((p) => ({
+              ...p,
+              underlying: (p.underlying ?? 'BTC') as CryptoSignalSymbol,
+            }))
+          : [],
         tradeHistory: Array.isArray(incoming.tradeHistory) ? incoming.tradeHistory : [],
         strategyParams: seed.strategyParams,
       }

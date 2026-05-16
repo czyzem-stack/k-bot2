@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import { useTradingEngine } from '../hooks/useTradingEngine'
 import { buildRadarData } from '../engine/radarMetrics'
-import type { EnvId, EnvironmentState } from '../engine/types'
+import type { EnvId, EnvironmentState, MarketSnapshot } from '../engine/types'
 import { LAB_IDS } from '../engine/types'
 import {
   getEnvRuntimeStatus,
@@ -36,16 +36,16 @@ function fmtUsd(n: number): string {
 
 function EnvCard({
   env,
-  fifteenYes,
+  snapshot,
   paperOn,
 }: {
   env: EnvironmentState
-  fifteenYes: number
+  snapshot: MarketSnapshot
   paperOn: boolean
 }) {
   const status = getEnvRuntimeStatus(env)
-  const pnl = openPnL(env, fifteenYes)
-  const nw = netWorth(env, fifteenYes)
+  const pnl = openPnL(env, snapshot)
+  const nw = netWorth(env, snapshot)
   const trades = totalTradeCount(env)
   const paused = env.mode === 'lab' && !paperOn
 
@@ -271,8 +271,8 @@ function ActivityTicker() {
 export function MultiAgentTradingDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { state, updateSettings, resetAllLabs } = useTradingEngine()
-  const fifteen = state.marketSnapshot.BTC.fifteen
-  const hourly = state.marketSnapshot.BTC.hourly
+  const fifteen = state.marketSnapshot.BTC.fifteen?.yesMid ?? 0.5
+  const hourly = state.marketSnapshot.BTC.hourly?.yesMid ?? 0.5
 
   const radarData = useMemo(() => buildRadarData(state), [state])
 
@@ -357,7 +357,7 @@ export function MultiAgentTradingDashboard() {
               <EnvCard
                 key={id}
                 env={state.environments[id]}
-                fifteenYes={fifteen}
+                snapshot={state.marketSnapshot}
                 paperOn={state.globalSettings.paperTradingEnabled}
               />
             ))}

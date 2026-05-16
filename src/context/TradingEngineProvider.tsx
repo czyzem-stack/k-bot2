@@ -4,8 +4,11 @@ import {
   evolveMarketSnapshot,
   tradingReducer,
 } from '../engine/tradingReducer'
+import type { MarketSnapshot } from '../engine/types'
+import { CRYPTO_SIGNAL_SYMBOLS } from '../engine/types'
 import {
   clearPersistedEngine,
+  ENGINE_STORAGE_KEY,
   loadPersistedEngine,
   mergePersistedIntoBase,
   persistEngineSnapshot,
@@ -13,7 +16,7 @@ import {
 import type { GlobalSettings, TradingEngineState } from '../engine/types'
 import { TradingEngineContext } from './TradingEngineContext'
 import { KalshiMarketDataContext } from './KalshiMarketDataContext'
-import { deriveBtcSignalFromExplorer, fetchCryptoExplorerRows } from '../lib/cryptoExplorer'
+import { deriveSignalFromExplorer, fetchCryptoExplorerRows } from '../lib/cryptoExplorer'
 import type { CryptoExplorerRow } from '../lib/cryptoExplorer'
 import { isOpenKalshiMarket } from '../lib/kalshi'
 
@@ -23,13 +26,20 @@ function initEngineState(): TradingEngineState {
   return saved ? mergePersistedIntoBase(base, saved) : base
 }
 
-function nextSnapshot(
-  prev: TradingEngineState['marketSnapshot'],
-  rows: CryptoExplorerRow[],
-): TradingEngineState['marketSnapshot'] {
-  const live = deriveBtcSignalFromExplorer(rows)
-  if (live) return { ...prev, BTC: live }
-  return evolveMarketSnapshot(prev)
+function nextSnapshot(prev: MarketSnapshot, rows: CryptoExplorerRow[]): MarketSnapshot {
+  const evolvedFallback = evolveMarketSnapshot(prev)
+  const out = {} as MarketSnapshot
+
+  for (const sym of CRYPTO_SIGNAL_SYMBOLS) {
+    const live = deriveSignalFromExplorer(rows, sym)
+    const fb = evolvedFallback[sym]
+    out[sym] = {
+      fifteen: live.fifteen ?? fb.fifteen,
+      hourly: live.hourly ?? fb.hourly,
+    }
+  }
+
+  return out
 }
 
 export function KalshiTradingRootProvider({ children }: { children: React.ReactNode }) {
@@ -109,6 +119,19 @@ export function KalshiTradingRootProvider({ children }: { children: React.ReactN
 
   const hardReset = useCallback(() => {
     clearPersistedEngine()
+    if (typeof window !== 'undefined') {
+      let leftover = window.localStorage.getItem(ENGINE_STORAGE_KEY)
+      if (leftover !== null) {
+        console.warn(
+          '[KalshiTradingRootProvider] Persistence key still present after clear — forcing removal.',
+        )
+        window.localStorage.removeItem(ENGINE_STORAGE_KEY)
+        leftover = window.localStorage.getItem(ENGINE_STORAGE_KEY)
+      }
+      if (leftover !== null) {
+        console.error('[KalshiTradingRootProvider] Failed to clear persistence key.')
+      }
+    }
     dispatch({ type: 'HARD_RESET' })
   }, [])
 

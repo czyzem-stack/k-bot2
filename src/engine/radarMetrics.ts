@@ -25,11 +25,9 @@ export function riskAversionScore(stopLossPct: number): number {
 /** Normalize labs onto comparable 0–100 axes for radar comparison. */
 export function buildRadarData(state: TradingEngineState): RadarDatum[] {
   const initial = state.globalSettings.initialBalance || 1
-  const fifteen = state.marketSnapshot.BTC.fifteen
-
   const scores = LAB_IDS.map((id) => {
     const env = state.environments[id]
-    const nw = netWorth(env, fifteen)
+    const nw = netWorth(env, state.marketSnapshot)
     const pnl = nw - initial
     const closed = env.wins + env.losses
     const winRate = closed > 0 ? (env.wins / closed) * 100 : 50

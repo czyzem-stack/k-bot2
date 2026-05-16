@@ -22,8 +22,8 @@ import {
 import { useTradingEngine } from '../hooks/useTradingEngine'
 import { useKalshiMarketExplorer } from '../hooks/useKalshiMarketExplorer'
 import { buildRadarData } from '../engine/radarMetrics'
-import type { EnvId, EnvironmentState } from '../engine/types'
-import { LAB_IDS } from '../engine/types'
+import type { EnvId, EnvironmentState, MarketSnapshot } from '../engine/types'
+import { CRYPTO_SIGNAL_SYMBOLS, LAB_IDS } from '../engine/types'
 import {
   getEnvRuntimeStatus,
   LAB_PRESETS,
@@ -234,16 +234,16 @@ function ExplorerRow({ row }: { row: CryptoExplorerRow }) {
 
 function EnvCard({
   env,
-  fifteenYes,
+  snapshot,
   paperOn,
 }: {
   env: EnvironmentState
-  fifteenYes: number
+  snapshot: MarketSnapshot
   paperOn: boolean
 }) {
   const status = getEnvRuntimeStatus(env)
-  const pnl = openPnL(env, fifteenYes)
-  const nw = netWorth(env, fifteenYes)
+  const pnl = openPnL(env, snapshot)
+  const nw = netWorth(env, snapshot)
   const trades = totalTradeCount(env)
   const paused = env.mode === 'lab' && !paperOn
 
@@ -312,7 +312,7 @@ function ActivityTicker() {
 
   const text = useMemo(() => {
     if (!items.length)
-      return 'Awaiting fills · Shared Kalshi mids hydrate BTC alignment · Fees = ⌈0.07·contracts·p·(1−p)⌉ · '
+      return 'Awaiting fills · Shared Kalshi ladder (7 assets) · 1¢ slip · Fees only on fills ⌈0.07·c·p·(1−p)⌉ · '
     return items.map((a) => `${new Date(a.timestamp).toLocaleTimeString()} · ${a.message}`).join(' · ')
   }, [items])
 
@@ -334,19 +334,31 @@ function ActivityTicker() {
 
 function TradingLabsPanel() {
   const { state, resetAllLabs } = useTradingEngine()
-  const fifteen = state.marketSnapshot.BTC.fifteen
-  const hourly = state.marketSnapshot.BTC.hourly
+  const snap = state.marketSnapshot
 
   const radarData = useMemo(() => buildRadarData(state), [state])
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="font-mono text-[11px] text-slate-500">
-          Shared BTC mids (Kalshi when available):{' '}
-          <span className="text-slate-200">15m {(fifteen * 100).toFixed(1)}¢</span>
-          <span className="mx-2 text-slate-700">|</span>
-          <span className="text-slate-200">1h {(hourly * 100).toFixed(1)}¢</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-2 font-mono text-[10px] text-slate-500">
+          <span className="uppercase tracking-widest text-slate-600">Shared mids</span>
+          {CRYPTO_SIGNAL_SYMBOLS.map((sym) => {
+            const f = snap[sym]?.fifteen
+            const h = snap[sym]?.hourly
+            return (
+              <span key={sym} className="text-slate-400">
+                <span className="font-semibold text-slate-300">{sym}</span>{' '}
+                <span className="text-emerald-400/90">
+                  15m{f ? ` ${(f.yesMid * 100).toFixed(0)}¢` : ' —'}
+                </span>
+                <span className="text-slate-600"> / </span>
+                <span className="text-sky-400/90">
+                  1h{h ? ` ${(h.yesMid * 100).toFixed(0)}¢` : ' —'}
+                </span>
+              </span>
+            )
+          })}
         </div>
         <button
           type="button"
@@ -367,7 +379,7 @@ function TradingLabsPanel() {
             <EnvCard
               key={id}
               env={state.environments[id]}
-              fifteenYes={fifteen}
+              snapshot={snap}
               paperOn={state.globalSettings.paperTradingEnabled}
             />
           ))}
@@ -375,7 +387,7 @@ function TradingLabsPanel() {
         <p className="mt-4 font-mono text-[11px] leading-relaxed text-slate-600">
           Labs stop-loss ladder:{' '}
           {LAB_PRESETS.map((l) => `${(l.params.stopLossPct * 100).toFixed(0)}%`).join(', ')}.
-          Each lab caps orders at 3% of balance and pays Kalshi taker fees on entry and exit.
+          Each lab caps orders at 3% of balance with 1¢ simulated slippage; Kalshi taker fees apply only on entry and exit fills.
         </p>
       </section>
 
@@ -475,6 +487,16 @@ function SettingsModal({
               type="checkbox"
               checked={gs.paperTradingEnabled}
               onChange={(e) => updateSettings({ paperTradingEnabled: e.target.checked })}
+              className="size-4 accent-emerald-500"
+            />
+          </label>
+
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3">
+            <span className="text-slate-200">Lab trading engine (killswitch)</span>
+            <input
+              type="checkbox"
+              checked={gs.isTradingActive}
+              onChange={(e) => updateSettings({ isTradingActive: e.target.checked })}
               className="size-4 accent-emerald-500"
             />
           </label>

@@ -3,13 +3,15 @@ import type {
   ActivityEntry,
   EnvironmentState,
   EnvId,
+  FrequencyQuote,
   GlobalSettings,
+  MarketSnapshot,
   Position,
   StrategyParameters,
   Trade,
   TradingEngineState,
 } from './types'
-import { LAB_IDS } from './types'
+import { CRYPTO_SIGNAL_SYMBOLS, LAB_IDS } from './types'
 
 export type TradingEngineAction =
   | { type: 'ENGINE_TICK'; snapshot: TradingEngineState['marketSnapshot'] }
@@ -17,7 +19,11 @@ export type TradingEngineAction =
   | { type: 'RESET_ALL_LABS' }
   | { type: 'HARD_RESET' }
 
-const DISPLAY_TICKER_BASE = 'BTC-15m'
+/** One probability-point adverse slip on simulated fills (1¢ on $1 contract scale). */
+const LAB_SLIPPAGE_PROB = 0.01
+
+/** Hard reset forces every environment ledger balance to this value. */
+export const HARD_RESET_LEDGER_BALANCE = 10_000
 
 export const LAB_PRESETS: { id: EnvId; label: string; params: StrategyParameters }[] = [
   { id: 'lab1', label: 'Lab 1 · SL 2%', params: { stopLossPct: 0.02, alignmentSensitivity: 0.02 } },
@@ -32,19 +38,75 @@ function uid(prefix: string): string {
 }
 
 function clampProb(x: number): number {
-  return Math.min(0.95, Math.max(0.05, x))
+  return Math.min(0.99, Math.max(0.01, x))
 }
 
-/** Synthetic BTC mid evolution when Kalshi rows are unavailable (offline / parsing gaps). */
-export function evolveMarketSnapshot(
-  prev: TradingEngineState['marketSnapshot'],
-): TradingEngineState['marketSnapshot'] {
-  const { fifteen: f0, hourly: h0 } = prev.BTC
-  const noise = () => (Math.random() - 0.5) * 0.04
-  const pull = (h0 - f0) * 0.12
-  const f = clampProb(f0 + pull + noise())
-  const h = clampProb(h0 + noise() * 0.85 + (Math.random() - 0.5) * 0.015)
-  return { BTC: { fifteen: f, hourly: h } }
+function seedFrequencyQuote(yesMid: number): FrequencyQuote {
+  const y = clampProb(yesMid)
+  return {
+    yesMid: y,
+    noMid: clampProb(1 - y),
+    volume: 0,
+    close_time: new Date(Date.now() + 45 * 60_000).toISOString(),
+  }
+}
+
+/** Deterministic-ish seed per asset for first paint before Kalshi rows arrive. */
+const SNAPSHOT_SEEDS: Partial<Record<(typeof CRYPTO_SIGNAL_SYMBOLS)[number], { f: number; h: number }>> =
+  {
+    BTC: { f: 0.48, h: 0.52 },
+    ETH: { f: 0.47, h: 0.51 },
+    SOL: { f: 0.46, h: 0.5 },
+    XRP: { f: 0.49, h: 0.53 },
+    DOGE: { f: 0.45, h: 0.5 },
+    BNB: { f: 0.5, h: 0.52 },
+    HYPE: { f: 0.44, h: 0.49 },
+  }
+
+export function createInitialMarketSnapshot(): MarketSnapshot {
+  return Object.fromEntries(
+    CRYPTO_SIGNAL_SYMBOLS.map((sym) => {
+      const seed = SNAPSHOT_SEEDS[sym] ?? { f: 0.48, h: 0.52 }
+      return [
+        sym,
+        {
+          fifteen: seedFrequencyQuote(seed.f),
+          hourly: seedFrequencyQuote(seed.h),
+        },
+      ]
+    }),
+  ) as MarketSnapshot
+}
+
+function evolveFrequencyQuote(prev: FrequencyQuote | null): FrequencyQuote {
+  const noise = () => (Math.random() - 0.5) * 0.034
+  const baseYes = prev?.yesMid ?? 0.48
+  const y = clampProb(baseYes + noise())
+  return {
+    yesMid: y,
+    noMid: clampProb(1 - y),
+    volume: prev?.volume ?? 0,
+    close_time:
+      prev?.close_time && Number.isFinite(Date.parse(prev.close_time))
+        ? prev.close_time
+        : new Date(Date.now() + 30 * 60_000).toISOString(),
+  }
+}
+
+/**
+ * Synthetic evolution when API rows are missing (offline / gap).
+ * Mutates only `MarketSnapshot` quote fields — never balances or environments.
+ */
+export function evolveMarketSnapshot(prev: MarketSnapshot): MarketSnapshot {
+  const out = {} as MarketSnapshot
+  for (const sym of CRYPTO_SIGNAL_SYMBOLS) {
+    const p = prev[sym]
+    out[sym] = {
+      fifteen: evolveFrequencyQuote(p?.fifteen ?? null),
+      hourly: evolveFrequencyQuote(p?.hourly ?? null),
+    }
+  }
+  return out
 }
 
 function nextPeak(prevPeak: number, balance: number): number {
@@ -66,16 +128,32 @@ function unrealizedReturn(pos: Position, yesMid: number): number {
   return (mark - pos.entryPrice) / Math.max(pos.entryPrice, 1e-9)
 }
 
+/**
+ * Kalshi 2026 taker fee — only call when entering or exiting a position.
+ * fees = ⌈0.07 × contracts × price × (1 − price)⌉
+ */
+function fillFee(contracts: number, executionPrice: number): number {
+  return kalshiTakerFee(contracts, executionPrice)
+}
+
 function maxContractsForBudget(budget: number, executionPrice: number): number {
   if (budget <= 0 || executionPrice <= 0 || executionPrice >= 1) return 0
   let c = Math.floor(budget / executionPrice)
   while (c > 0) {
     const gross = c * executionPrice
-    const fee = kalshiTakerFee(c, executionPrice)
+    const fee = fillFee(c, executionPrice)
     if (gross + fee <= budget) return c
     c -= 1
   }
   return 0
+}
+
+/** Child (15m) must settle no later than parent (1h) window for this asset. */
+function timingAllowsChildParent(childCloseIso: string, parentCloseIso: string): boolean {
+  const c = Date.parse(childCloseIso)
+  const p = Date.parse(parentCloseIso)
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return false
+  return c <= p
 }
 
 function alignmentSignal(
@@ -98,6 +176,18 @@ function alignmentSignal(
   return null
 }
 
+/** Adverse slippage on simulated entry (pay worse price). */
+function entryExecutionPrice(side: 'yes' | 'no', yesMid: number): number {
+  if (side === 'yes') return clampProb(yesMid + LAB_SLIPPAGE_PROB)
+  return clampProb(1 - yesMid + LAB_SLIPPAGE_PROB)
+}
+
+/** Adverse slippage on simulated exit (receive worse price). */
+function exitExecutionPrice(side: 'yes' | 'no', yesMid: number): number {
+  const raw = markPosition(side, yesMid)
+  return clampProb(raw - LAB_SLIPPAGE_PROB)
+}
+
 function pushActivity(log: ActivityEntry[], message: string): ActivityEntry[] {
   const entry: ActivityEntry = { id: uid('act'), timestamp: Date.now(), message }
   return [entry, ...log].slice(0, 120)
@@ -109,15 +199,18 @@ export function getEnvRuntimeStatus(env: EnvironmentState): EnvRuntimeStatus {
   return env.positions.length > 0 ? 'active' : 'idle'
 }
 
-export function openPnL(env: EnvironmentState, fifteenYes: number): number {
+/** Mark-to-market vs cash balance only — never mutates `env.balance`. */
+export function openPnL(env: EnvironmentState, snapshot: MarketSnapshot): number {
   return env.positions.reduce((sum, p) => {
-    const mark = markPosition(p.side, fifteenYes)
+    const q = snapshot[p.underlying]?.fifteen
+    if (!q) return sum
+    const mark = markPosition(p.side, q.yesMid)
     return sum + p.contracts * (mark - p.entryPrice)
   }, 0)
 }
 
-export function netWorth(env: EnvironmentState, fifteenYes: number): number {
-  return env.balance + openPnL(env, fifteenYes)
+export function netWorth(env: EnvironmentState, snapshot: MarketSnapshot): number {
+  return env.balance + openPnL(env, snapshot)
 }
 
 export function totalTradeCount(env: EnvironmentState): number {
@@ -137,6 +230,7 @@ export function createInitialTradingEngineState(): TradingEngineState {
   const settings: GlobalSettings = {
     paperTradingEnabled: true,
     enableLiveTrading: false,
+    isTradingActive: false,
     initialBalance: 10_000,
     liveApiKeyId: '',
     liveApiPrivateKeyPem: '',
@@ -176,8 +270,48 @@ export function createInitialTradingEngineState(): TradingEngineState {
   return {
     globalSettings: settings,
     environments,
-    marketSnapshot: { BTC: { fifteen: 0.48, hourly: 0.52 } },
+    marketSnapshot: createInitialMarketSnapshot(),
     activityLog: [],
+  }
+}
+
+/**
+ * Nuclear reset: ledger balances = HARD_RESET_LEDGER_BALANCE, empty positions/history,
+ * trading killswitch OFF. Preserves paper/live API prefs from previous globalSettings.
+ */
+function hardResetTradingState(prev: TradingEngineState): TradingEngineState {
+  const fresh = createInitialTradingEngineState()
+  const preservedGs: GlobalSettings = {
+    ...fresh.globalSettings,
+    paperTradingEnabled: prev.globalSettings.paperTradingEnabled,
+    enableLiveTrading: prev.globalSettings.enableLiveTrading,
+    liveApiKeyId: prev.globalSettings.liveApiKeyId,
+    liveApiPrivateKeyPem: prev.globalSettings.liveApiPrivateKeyPem,
+    initialBalance: HARD_RESET_LEDGER_BALANCE,
+    isTradingActive: false,
+  }
+
+  const environments = { ...fresh.environments }
+  for (const id of Object.keys(environments) as EnvId[]) {
+    environments[id] = {
+      ...fresh.environments[id],
+      balance: HARD_RESET_LEDGER_BALANCE,
+      peakBalance: HARD_RESET_LEDGER_BALANCE,
+      positions: [],
+      tradeHistory: [],
+      maxDrawdownPct: 0,
+      totalFeesPaid: 0,
+      wins: 0,
+      losses: 0,
+    }
+  }
+
+  return {
+    ...fresh,
+    globalSettings: preservedGs,
+    environments,
+    activityLog: [],
+    marketSnapshot: fresh.marketSnapshot,
   }
 }
 
@@ -215,19 +349,33 @@ function envShortName(env: EnvironmentState): string {
   return first || env.label
 }
 
+/**
+ * Balance changes ONLY when closing a position here: proceeds − exit fee.
+ * Fee charged once via fillFee at exit.
+ */
 function applyStopLoss(
   env: EnvironmentState,
-  fifteenYes: number,
+  snapshot: MarketSnapshot,
   messages: string[],
 ): EnvironmentState {
+  if (!env.positions?.length) {
+    return cloneEnv(env)
+  }
+
   const next = cloneEnv(env)
   const remaining: Position[] = []
 
   for (const pos of next.positions) {
-    const ur = unrealizedReturn(pos, fifteenYes)
+    const q = snapshot[pos.underlying]?.fifteen
+    if (!q) {
+      remaining.push(pos)
+      continue
+    }
+
+    const ur = unrealizedReturn(pos, q.yesMid)
     if (ur <= -next.strategyParams.stopLossPct) {
-      const exitPx = markPosition(pos.side, fifteenYes)
-      const exitFee = kalshiTakerFee(pos.contracts, clampProb(exitPx))
+      const exitPx = exitExecutionPrice(pos.side, q.yesMid)
+      const exitFee = fillFee(pos.contracts, exitPx)
       const proceeds = pos.contracts * exitPx - exitFee
 
       const trade: Trade = {
@@ -265,10 +413,13 @@ function applyStopLoss(
   return next
 }
 
-function tryBuy(
+/**
+ * Opens at most one new position per lab per tick.
+ * Balance decreases ONLY here by gross + entry fee when a buy executes.
+ */
+function tryBuyFirstAligned(
   env: EnvironmentState,
-  fifteenYes: number,
-  hourlyYes: number,
+  snapshot: MarketSnapshot,
 ): { env: EnvironmentState; messages: string[] } {
   const messages: string[] = []
   const next = cloneEnv(env)
@@ -277,66 +428,82 @@ function tryBuy(
     return { env: next, messages }
   }
 
-  const sig = alignmentSignal(fifteenYes, hourlyYes, next.strategyParams.alignmentSensitivity)
-  if (!sig) return { env: next, messages }
+  for (const sym of CRYPTO_SIGNAL_SYMBOLS) {
+    const asset = snapshot[sym]
+    const child = asset?.fifteen
+    const parent = asset?.hourly
+    if (!child || !parent) continue
+    if (!timingAllowsChildParent(child.close_time, parent.close_time)) continue
 
-  const execPx = clampProb(sig.side === 'yes' ? fifteenYes : 1 - fifteenYes)
-  const budget = next.balance * 0.03
-  const contracts = maxContractsForBudget(budget, execPx)
-  if (contracts <= 0) return { env: next, messages }
+    const fifteenYes = child.yesMid
+    const hourlyYes = parent.yesMid
+    const sig = alignmentSignal(fifteenYes, hourlyYes, next.strategyParams.alignmentSensitivity)
+    if (!sig) continue
 
-  const fee = kalshiTakerFee(contracts, execPx)
-  const gross = contracts * execPx
-  const totalCost = gross + fee
-  if (totalCost > next.balance) return { env: next, messages }
+    const execPx = entryExecutionPrice(sig.side, fifteenYes)
+    const budget = next.balance * 0.03
+    const contracts = maxContractsForBudget(budget, execPx)
+    if (contracts <= 0) continue
 
-  const ticker = `${DISPLAY_TICKER_BASE}-${sig.side.toUpperCase()}`
+    const fee = fillFee(contracts, execPx)
+    const gross = contracts * execPx
+    const totalCost = gross + fee
+    if (totalCost > next.balance) continue
 
-  const pos: Position = {
-    id: uid('pos'),
-    ticker,
-    side: sig.side,
-    contracts,
-    entryPrice: execPx,
-    entryFee: fee,
-    openedAt: Date.now(),
+    const ticker = `${sym}-15m-${sig.side.toUpperCase()}`
+
+    const pos: Position = {
+      id: uid('pos'),
+      ticker,
+      underlying: sym,
+      side: sig.side,
+      contracts,
+      entryPrice: execPx,
+      entryFee: fee,
+      openedAt: Date.now(),
+    }
+
+    const trade: Trade = {
+      id: uid('tr'),
+      timestamp: Date.now(),
+      envId: next.id,
+      kind: 'buy',
+      ticker,
+      side: sig.side,
+      contracts,
+      price: execPx,
+      fee,
+    }
+
+    next.positions = [pos]
+    next.tradeHistory = [...next.tradeHistory, trade]
+    next.balance -= totalCost
+    next.totalFeesPaid += fee
+    next.peakBalance = nextPeak(next.peakBalance, next.balance)
+    next.maxDrawdownPct = updateDrawdown(next.peakBalance, next.balance, next.maxDrawdownPct)
+
+    const labShort = next.label.split(' · ')[0]
+    messages.push(
+      `${labShort} bought ${contracts} contracts of ${ticker} @ ${execPx.toFixed(2)}`,
+    )
+    return { env: next, messages }
   }
-
-  const trade: Trade = {
-    id: uid('tr'),
-    timestamp: Date.now(),
-    envId: next.id,
-    kind: 'buy',
-    ticker,
-    side: sig.side,
-    contracts,
-    price: execPx,
-    fee,
-  }
-
-  next.balance -= totalCost
-  next.positions = [pos]
-  next.tradeHistory = [...next.tradeHistory, trade]
-  next.totalFeesPaid += fee
-  next.peakBalance = nextPeak(next.peakBalance, next.balance)
-  next.maxDrawdownPct = updateDrawdown(next.peakBalance, next.balance, next.maxDrawdownPct)
-
-  const labShort = next.label.split(' · ')[0]
-  messages.push(
-    `${labShort} bought ${contracts} contracts of ${ticker} @ ${execPx.toFixed(2)}`,
-  )
 
   return { env: next, messages }
 }
 
 function processLab(
   env: EnvironmentState,
-  fifteenYes: number,
-  hourlyYes: number,
+  snapshot: MarketSnapshot,
+  globalSettings: GlobalSettings,
 ): { env: EnvironmentState; messages: string[] } {
+  if (!globalSettings.isTradingActive) {
+    return { env, messages: [] }
+  }
+
   const msgs: string[] = []
-  let next = applyStopLoss(env, fifteenYes, msgs)
-  const bought = tryBuy(next, fifteenYes, hourlyYes)
+  let next = applyStopLoss(env, snapshot, msgs)
+  const bought = tryBuyFirstAligned(next, snapshot)
   next = bought.env
   msgs.push(...bought.messages)
   return { env: next, messages: msgs }
@@ -354,11 +521,13 @@ export function tradingReducer(
     case 'RESET_ALL_LABS':
       return resetLabs(state)
     case 'HARD_RESET':
-      return createInitialTradingEngineState()
+      return hardResetTradingState(state)
     case 'ENGINE_TICK': {
+      /**
+       * Tick updates marks only via `marketSnapshot`. Cash balance and fees are touched
+       * exclusively inside `applyStopLoss` (close + fee) and `tryBuyFirstAligned` (open + fee).
+       */
       const marketSnapshot = action.snapshot
-      const fifteenYes = marketSnapshot.BTC.fifteen
-      const hourlyYes = marketSnapshot.BTC.hourly
 
       const next: TradingEngineState = {
         ...state,
@@ -374,8 +543,21 @@ export function tradingReducer(
       let activityLog = next.activityLog
 
       for (const id of LAB_IDS) {
-        const res = processLab(next.environments[id], fifteenYes, hourlyYes)
+        const beforeBal = next.environments[id].balance
+        const res = processLab(
+          next.environments[id],
+          marketSnapshot,
+          next.globalSettings,
+        )
         next.environments[id] = res.env
+        const afterBal = next.environments[id].balance
+
+        if (beforeBal !== afterBal) {
+          console.warn(
+            `BALANCE LEAK DETECTED: ${beforeBal} -> ${afterBal}. Current Open Positions: ${next.environments[id].positions.length}`,
+          )
+        }
+
         for (const m of res.messages) {
           activityLog = pushActivity(activityLog, m)
         }

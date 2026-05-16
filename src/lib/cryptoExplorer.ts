@@ -3,10 +3,12 @@ import {
   fetchAllMarketsForQuery,
   isOpenKalshiMarket,
   KALSHI_CRYPTO_ASSETS,
+  noMidProbability,
   parseVolume,
   yesMidProbability,
   type KalshiMarket,
 } from './kalshi'
+import type { AssetMarketSnapshot, CryptoSignalSymbol, FrequencyQuote } from '../engine/types'
 
 export type CryptoExplorerBucket = '15m' | 'hourly'
 
@@ -14,6 +16,15 @@ export interface CryptoExplorerRow {
   assetSymbol: string
   bucket: CryptoExplorerBucket
   market: KalshiMarket
+}
+
+function quoteFromMarket(m: KalshiMarket): FrequencyQuote {
+  return {
+    yesMid: yesMidProbability(m),
+    noMid: noMidProbability(m),
+    volume: parseVolume(m),
+    close_time: m.close_time,
+  }
 }
 
 /** Fetch open crypto contracts for all tracked assets (15m series + current hourly event window per asset). */
@@ -48,37 +59,47 @@ export async function fetchCryptoExplorerRows(): Promise<CryptoExplorerRow[]> {
   return batches.flat()
 }
 
-/** BTC mids for the trading engine: soonest 15m YES vs most liquid hourly YES headline strike. */
-export function deriveBtcSignalFromExplorer(rows: CryptoExplorerRow[]): {
-  fifteen: number
-  hourly: number
-} | null {
+/**
+ * Derive 15m + hourly quotes for one asset from explorer rows.
+ * 15m = soonest future close among open 15m contracts; hourly = highest volume strike in current window.
+ */
+export function deriveSignalFromExplorer(
+  rows: CryptoExplorerRow[],
+  symbol: CryptoSignalSymbol,
+): AssetMarketSnapshot {
   const now = Date.now()
 
-  const btc15 = rows.filter(
+  const m15 = rows.filter(
     (r) =>
-      r.assetSymbol === 'BTC' &&
+      r.assetSymbol === symbol &&
       r.bucket === '15m' &&
       isOpenKalshiMarket(r.market) &&
       Date.parse(r.market.close_time) > now,
   )
-  const btcH = rows.filter(
+  const h = rows.filter(
     (r) =>
-      r.assetSymbol === 'BTC' &&
+      r.assetSymbol === symbol &&
       r.bucket === 'hourly' &&
       isOpenKalshiMarket(r.market) &&
       Date.parse(r.market.close_time) > now,
   )
 
-  if (!btc15.length || !btcH.length) return null
-
-  btc15.sort((a, b) => Date.parse(a.market.close_time) - Date.parse(b.market.close_time))
-  btcH.sort((a, b) => parseVolume(b.market) - parseVolume(a.market))
+  m15.sort((a, b) => Date.parse(a.market.close_time) - Date.parse(b.market.close_time))
+  h.sort((a, b) => parseVolume(b.market) - parseVolume(a.market))
 
   return {
-    fifteen: yesMidProbability(btc15[0].market),
-    hourly: yesMidProbability(btcH[0].market),
+    fifteen: m15.length ? quoteFromMarket(m15[0].market) : null,
+    hourly: h.length ? quoteFromMarket(h[0].market) : null,
   }
+}
+
+/** @deprecated Use deriveSignalFromExplorer(rows, 'BTC') */
+export function deriveBtcSignalFromExplorer(
+  rows: CryptoExplorerRow[],
+): { fifteen: number; hourly: number } | null {
+  const s = deriveSignalFromExplorer(rows, 'BTC')
+  if (!s.fifteen || !s.hourly) return null
+  return { fifteen: s.fifteen.yesMid, hourly: s.hourly.yesMid }
 }
 
 /** Regex / title fallback when rows are merged from a flat /markets feed. */
