@@ -1,8 +1,14 @@
 # Changelog
 
+## 0.0.0.15
+
+- _(active dev line — add features here)_
+
 ## 0.0.0.14
 
 - **Header:** Kbot2 branding, unified toolbar controls (emerald accent), stable layout across Live/Labs
+- **DEV / LIVE badge** in header + tab title (`VITE_DEPLOY_CHANNEL`)
+- **Dual localhost:** `npm run dev:all` / `kbot2-dev` — main :5173 (LIVE), dev :5174 (DEV)
 
 ## 0.0.0.13
 

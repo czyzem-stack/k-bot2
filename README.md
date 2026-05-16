@@ -2,7 +2,7 @@
 
 Kalshi crypto **paper-trading dashboard**: live market explorer (15m + hourly) and multi-lab trading engine with local persistence.
 
-**Current version:** see `package.json` and the `v*` badge under **Trading dashboard** in the UI.
+**Current version:** see `package.json`, the `v*` line under **Kbot2**, and the **DEV** / **LIVE** tag in the header.
 
 ## What you get
 
