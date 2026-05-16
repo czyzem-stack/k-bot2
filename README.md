@@ -33,10 +33,12 @@ Optional — add to `~/.zshrc` so `kbot2-dev` works in any terminal:
 export PATH="$HOME/k-bot2:$PATH"
 ```
 
-| URL | Branch |
-|-----|--------|
-| http://localhost:5173 | `main` (worktree at `worktrees/main`) |
-| http://localhost:5174 | `dev` (this checkout) |
+| URL | Branch | Header tag |
+|-----|--------|------------|
+| http://localhost:5173 | `main` (worktree at `worktrees/main`) | **LIVE** (green) |
+| http://localhost:5174 | `dev` (this checkout) | **DEV** (amber) |
+
+The tag next to **Kbot2** and the browser tab title show which line you are on.
 
 Options (same script):
 

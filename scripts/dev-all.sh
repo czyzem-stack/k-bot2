@@ -64,8 +64,8 @@ ensure_deps() {
 }
 
 run_vite() {
-  local dir=$1 port=$2
-  npm --prefix "$dir" exec vite -- --port "$port" --strictPort --host
+  local dir=$1 port=$2 channel=$3
+  env VITE_DEPLOY_CHANNEL="$channel" npm --prefix "$dir" exec vite -- --port "$port" --strictPort --host
 }
 
 cleanup() {
@@ -99,25 +99,25 @@ fi
 
 case "$MODE" in
   main)
-    echo "  main  http://localhost:$MAIN_PORT   v$MAIN_VER · $MAIN_BRANCH"
+    echo "  main  http://localhost:$MAIN_PORT   LIVE · v$MAIN_VER · $MAIN_BRANCH"
     echo "  Ctrl+C to stop"
     echo ""
-    run_vite "$MAIN_WT" "$MAIN_PORT"
+    run_vite "$MAIN_WT" "$MAIN_PORT" live
     ;;
   dev)
     echo "  dev   http://localhost:$DEV_PORT   v$DEV_VER · $DEV_BRANCH"
     echo "  Ctrl+C to stop"
     echo ""
-    run_vite "$ROOT" "$DEV_PORT"
+    run_vite "$ROOT" "$DEV_PORT" dev
     ;;
   both)
-    echo "  main  http://localhost:$MAIN_PORT   v$MAIN_VER · $MAIN_BRANCH"
-    echo "  dev   http://localhost:$DEV_PORT   v$DEV_VER · $DEV_BRANCH"
+    echo "  main  http://localhost:$MAIN_PORT   LIVE · v$MAIN_VER · $MAIN_BRANCH"
+    echo "  dev   http://localhost:$DEV_PORT   DEV · v$DEV_VER · $DEV_BRANCH"
     echo "  Ctrl+C stops both"
     echo ""
-    run_vite "$MAIN_WT" "$MAIN_PORT" &
+    run_vite "$MAIN_WT" "$MAIN_PORT" live &
     PID_MAIN=$!
-    run_vite "$ROOT" "$DEV_PORT" &
+    run_vite "$ROOT" "$DEV_PORT" dev &
     PID_DEV=$!
     wait
     ;;

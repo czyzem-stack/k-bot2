@@ -19,6 +19,11 @@ import {
   Tooltip,
 } from 'recharts'
 import { APP_VERSION } from '../lib/appVersion'
+import {
+  DEPLOY_CHANNEL,
+  DEPLOY_CHANNEL_HINT,
+  DEPLOY_CHANNEL_LABEL,
+} from '../lib/deployChannel'
 import { useTradingEngine } from '../hooks/useTradingEngine'
 import { useKalshiMarketExplorer } from '../hooks/useKalshiMarketExplorer'
 import { buildRadarData } from '../engine/radarMetrics'
@@ -57,6 +62,22 @@ const HDR_BTN =
   'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-700/90 bg-slate-900/80 px-3 font-mono text-[11px] font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50'
 const HDR_BTN_ON =
   'border-emerald-500/40 bg-emerald-500/10 text-emerald-50 ring-1 ring-emerald-500/25 hover:border-emerald-500/50 hover:bg-emerald-500/15'
+
+function DeployChannelBadge() {
+  const live = DEPLOY_CHANNEL === 'live'
+  return (
+    <span
+      className={
+        live
+          ? 'inline-flex items-center rounded-md border border-emerald-500/45 bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.2em] text-emerald-200 ring-1 ring-emerald-500/25'
+          : 'inline-flex items-center rounded-md border border-amber-500/45 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.2em] text-amber-100 ring-1 ring-amber-500/25'
+      }
+      title={DEPLOY_CHANNEL_HINT}
+    >
+      {DEPLOY_CHANNEL_LABEL}
+    </span>
+  )
+}
 
 function fmtUsd(n: number): string {
   return n.toLocaleString(undefined, {
@@ -691,6 +712,10 @@ export function KalshiTabbedDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { loading, refreshMarkets } = useKalshiMarketExplorer()
 
+  useEffect(() => {
+    document.title = `k-bot2 ${DEPLOY_CHANNEL_LABEL} v${APP_VERSION}`
+  }, [])
+
   return (
     <div className="flex min-h-screen flex-col bg-[#020617] text-slate-200">
       <header className="sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
@@ -700,9 +725,12 @@ export function KalshiTabbedDashboard() {
               <LineChart className="size-5 text-emerald-400" aria-hidden />
             </div>
             <div>
-              <h1 className="font-mono text-lg font-semibold tracking-tight text-white sm:text-xl">
-                Kbot2
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-mono text-lg font-semibold tracking-tight text-white sm:text-xl">
+                  Kbot2
+                </h1>
+                <DeployChannelBadge />
+              </div>
               <p className="font-mono text-[11px] text-slate-500">Trading dashboard</p>
               <p
                 className="mt-0.5 font-mono text-[9px] tabular-nums tracking-wide text-slate-600"
