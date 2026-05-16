@@ -1,7 +1,6 @@
 import {
   Activity,
   FlaskConical,
-  Layers,
   LineChart,
   Radio,
   RefreshCw,
@@ -34,15 +33,17 @@ import {
 } from '../engine/tradingReducer'
 import {
   categorizeKalshiCryptoMarket,
+  explorerRowsForBucket,
   type CryptoExplorerBucket,
   type CryptoExplorerRow,
 } from '../lib/cryptoExplorer'
 import {
   formatBidAskCents,
+  hasLiquidQuote,
+  noMidCents,
   parseUsdProbability,
   parseVolume,
-  yesMidProbability,
-  noMidProbability,
+  yesMidCents,
 } from '../lib/kalshi'
 
 type TabId = 'live' | 'labs'
@@ -59,17 +60,49 @@ function fmtUsd(n: number): string {
   })
 }
 
-function useClockTick(intervalMs: number): number {
+function BucketToggle({
+  bucket,
+  onChange,
+}: {
+  bucket: CryptoExplorerBucket
+  onChange: (b: CryptoExplorerBucket) => void
+}) {
+  return (
+    <div
+      className="flex h-9 items-center rounded-full bg-slate-900/90 p-0.5 ring-1 ring-slate-700"
+      role="group"
+      aria-label="Market timeframe"
+    >
+      {(['15m', 'hourly'] as const).map((b) => (
+        <button
+          key={b}
+          type="button"
+          onClick={() => onChange(b)}
+          className={
+            bucket === b
+              ? 'h-full rounded-full bg-sky-500/25 px-4 font-mono text-[11px] font-semibold text-sky-100 ring-1 ring-sky-500/35'
+              : 'h-full rounded-full px-4 font-mono text-[11px] font-medium text-slate-400 hover:text-slate-200'
+          }
+        >
+          {b === '15m' ? '15m' : 'Hourly'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function useClockTick(intervalMs: number, enabled = true): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
+    if (!enabled) return
     const id = window.setInterval(() => setNow(Date.now()), intervalMs)
     return () => window.clearInterval(id)
-  }, [intervalMs])
+  }, [intervalMs, enabled])
   return now
 }
 
-function CloseCountdown({ closeIso }: { closeIso: string }) {
-  const now = useClockTick(1000)
+function CloseCountdown({ closeIso, paused }: { closeIso: string; paused?: boolean }) {
+  const now = useClockTick(1000, !paused)
   const end = Date.parse(closeIso)
   if (!Number.isFinite(end)) return <span className="text-slate-600">—</span>
   const ms = Math.max(0, end - now)
@@ -82,115 +115,216 @@ function CloseCountdown({ closeIso }: { closeIso: string }) {
   return <span className="tabular-nums text-amber-200">{label}</span>
 }
 
-function LiveMarketsPanel({
-  bucket,
-  setBucket,
-}: {
-  bucket: CryptoExplorerBucket
-  setBucket: (b: CryptoExplorerBucket) => void
-}) {
-  const { rows, loading, error, refreshedAt, refreshMarkets } = useKalshiMarketExplorer()
+const EXPLORER_BUCKETS: CryptoExplorerBucket[] = ['15m', 'hourly']
 
-  const filtered = useMemo(() => {
-    const list = rows.filter((r) => r.bucket === bucket)
-    list.sort((a, b) => Date.parse(a.market.close_time) - Date.parse(b.market.close_time))
-    return list
-  }, [rows, bucket])
+function rowMapForBucket(
+  rows: CryptoExplorerRow[],
+  bucket: CryptoExplorerBucket,
+): Map<string, CryptoExplorerRow> {
+  const map = new Map<string, CryptoExplorerRow>()
+  for (const row of explorerRowsForBucket(rows, bucket)) {
+    map.set(row.assetSymbol, row)
+  }
+  return map
+}
+
+function statusForBucket(
+  bucket: CryptoExplorerBucket,
+  rowByAsset: Map<string, CryptoExplorerRow>,
+  loading: boolean,
+  error: string | null,
+): string | null {
+  if (error) return error
+  if (loading) return null
+  const missing = CRYPTO_SIGNAL_SYMBOLS.filter((s) => !rowByAsset.has(s))
+  if (missing.length === 0) return null
+  return `No ${bucket} quote: ${missing.join(', ')} · Refresh markets`
+}
+
+function LiveMarketsPanel({ bucket }: { bucket: CryptoExplorerBucket }) {
+  const { rows, loading, error, refreshedAt } = useKalshiMarketExplorer()
+
+  const rowMaps = useMemo(
+    () => ({
+      '15m': rowMapForBucket(rows, '15m'),
+      hourly: rowMapForBucket(rows, 'hourly'),
+    }),
+    [rows],
+  )
+
+  const statusMessage = statusForBucket(bucket, rowMaps[bucket], loading, error)
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex rounded-full bg-slate-900/90 p-0.5 ring-1 ring-slate-700">
-          {(['15m', 'hourly'] as const).map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => setBucket(b)}
-              className={
-                bucket === b
-                  ? 'rounded-full bg-sky-500/25 px-4 py-1.5 font-mono text-[11px] font-semibold text-sky-100 ring-1 ring-sky-500/35'
-                  : 'rounded-full px-4 py-1.5 font-mono text-[11px] font-medium text-slate-400 hover:text-slate-200'
-              }
-            >
-              {b === '15m' ? '15m' : 'Hourly'}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => void refreshMarkets()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-50"
-        >
-          <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-          Refresh markets
-        </button>
-      </div>
-
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-rose-500/35 bg-rose-950/35 px-4 py-3 font-mono text-xs text-rose-100"
-        >
-          {error}
-        </div>
-      ) : null}
-
-      <p className="font-mono text-[11px] text-slate-500">
-        Open contracts only · Last fetch{' '}
-        {refreshedAt ? new Date(refreshedAt).toLocaleTimeString() : '—'} · Dev proxy{' '}
-        <span className="text-slate-600">/kalshi-api</span>
+    <div className="space-y-2">
+      <p className="font-mono text-[11px] leading-4 text-slate-500">
+        One Kalshi contract per asset · {CRYPTO_SIGNAL_SYMBOLS.length} assets · Last fetch{' '}
+        {refreshedAt ? new Date(refreshedAt).toLocaleTimeString() : '—'}
       </p>
 
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/40 ring-1 ring-white/[0.03]">
-        <table className="min-w-[920px] w-full border-collapse font-mono text-left text-[11px]">
-          <thead>
-            <tr className="border-b border-slate-800 bg-slate-900/80 text-[10px] uppercase tracking-widest text-slate-500">
-              <th className="px-3 py-3">Asset</th>
-              <th className="px-3 py-3">Ticker</th>
-              <th className="px-3 py-3">Bucket</th>
-              <th className="px-3 py-3">Yes bid / ask</th>
-              <th className="px-3 py-3">Yes mid</th>
-              <th className="px-3 py-3">No bid / ask</th>
-              <th className="px-3 py-3">No mid</th>
-              <th className="px-3 py-3">Volume</th>
-              <th className="px-3 py-3">Closes in</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && !filtered.length ? (
-              <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
-                  Loading Kalshi markets…
-                </td>
-              </tr>
-            ) : null}
-            {!loading && !filtered.length ? (
-              <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-slate-600">
-                  No open contracts for this bucket.
-                </td>
-              </tr>
-            ) : null}
-            {filtered.map((row) => (
-              <ExplorerRow
-                key={`${row.assetSymbol}-${row.bucket}-${row.market.ticker}`}
-                row={row}
+        <div className="grid min-w-[920px]">
+          {EXPLORER_BUCKETS.map((b) => (
+            <div
+              key={b}
+              className={`col-start-1 row-start-1 min-w-0 ${b === bucket ? 'z-10' : 'invisible'}`}
+              aria-hidden={b !== bucket}
+            >
+              <ExplorerMarketsTable
+                bucket={b}
+                rowByAsset={rowMaps[b]}
+                loading={loading}
+                countdownLive={b === bucket}
               />
-            ))}
-          </tbody>
-        </table>
+            </div>
+          ))}
+        </div>
       </div>
+
+      <p
+        role="status"
+        aria-live="polite"
+        className={`min-h-5 truncate font-mono text-[10px] leading-5 ${
+          statusMessage ? 'text-amber-200/85' : 'text-transparent select-none'
+        }`}
+        title={statusMessage ?? undefined}
+      >
+        {statusMessage ?? '—'}
+      </p>
     </div>
   )
 }
 
-function ExplorerRow({ row }: { row: CryptoExplorerRow }) {
+function ExplorerMarketsTable({
+  bucket,
+  rowByAsset,
+  loading,
+  countdownLive,
+}: {
+  bucket: CryptoExplorerBucket
+  rowByAsset: Map<string, CryptoExplorerRow>
+  loading: boolean
+  countdownLive: boolean
+}) {
+  return (
+    <table className="w-full table-fixed border-collapse font-mono text-left text-[11px]">
+      <colgroup>
+        <col className="w-[3.25rem]" />
+        <col className="w-[13.5rem]" />
+        <col className="w-[3.5rem]" />
+        <col className="w-[6.75rem]" />
+        <col className="w-[4.25rem]" />
+        <col className="w-[6.75rem]" />
+        <col className="w-[4.25rem]" />
+        <col className="w-[5.5rem]" />
+        <col className="w-[4.5rem]" />
+      </colgroup>
+      <thead>
+        <tr className="border-b border-slate-800 bg-slate-900/80 text-[10px] uppercase tracking-widest text-slate-500">
+          <th className="px-3 py-3">Asset</th>
+          <th className="px-3 py-3">Ticker</th>
+          <th className="px-3 py-3">Bucket</th>
+          <th className="px-3 py-3">Yes bid / ask</th>
+          <th className="px-3 py-3">Yes mid</th>
+          <th className="px-3 py-3">No bid / ask</th>
+          <th className="px-3 py-3">No mid</th>
+          <th className="px-3 py-3">Volume</th>
+          <th className="px-3 py-3">Closes in</th>
+        </tr>
+      </thead>
+      <tbody>
+        {CRYPTO_SIGNAL_SYMBOLS.map((symbol) => {
+          const row = rowByAsset.get(symbol)
+          if (row) {
+            return (
+              <ExplorerRow
+                key={`${symbol}-${row.bucket}-${row.market.ticker}`}
+                row={row}
+                countdownLive={countdownLive}
+              />
+            )
+          }
+          if (loading) {
+            return (
+              <ExplorerSkeletonRow key={`${symbol}-loading`} symbol={symbol} bucket={bucket} />
+            )
+          }
+          return <EmptyExplorerRow key={`${symbol}-empty`} symbol={symbol} bucket={bucket} />
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+const EXPLORER_EMPTY = '—'
+
+function ExplorerPlaceholderCells({
+  symbol,
+  bucket,
+  muted,
+}: {
+  symbol: string
+  bucket: CryptoExplorerBucket
+  muted?: boolean
+}) {
+  const cell = muted ? 'px-3 py-2.5 text-slate-600' : 'px-3 py-2.5 text-slate-300'
+  const faint = 'px-3 py-2.5 text-slate-600'
+  return (
+    <>
+      <td className={cell}>{symbol}</td>
+      <td className={`truncate ${faint}`}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{bucket}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+      <td className={faint}>{EXPLORER_EMPTY}</td>
+    </>
+  )
+}
+
+function ExplorerSkeletonRow({
+  symbol,
+  bucket,
+}: {
+  symbol: string
+  bucket: CryptoExplorerBucket
+}) {
+  return (
+    <tr className="border-b border-slate-900/80 animate-pulse opacity-50">
+      <ExplorerPlaceholderCells symbol={symbol} bucket={bucket} muted />
+    </tr>
+  )
+}
+
+function EmptyExplorerRow({
+  symbol,
+  bucket,
+}: {
+  symbol: string
+  bucket: CryptoExplorerBucket
+}) {
+  return (
+    <tr className="border-b border-slate-900/80 hover:bg-slate-900/35">
+      <ExplorerPlaceholderCells symbol={symbol} bucket={bucket} />
+    </tr>
+  )
+}
+
+function ExplorerRow({
+  row,
+  countdownLive = true,
+}: {
+  row: CryptoExplorerRow
+  countdownLive?: boolean
+}) {
   const m = row.market
+  const liquid = hasLiquidQuote(m)
   const yesBa = formatBidAskCents(m)
   const noBid = parseUsdProbability(m.no_bid_dollars)
   const noAsk = parseUsdProbability(m.no_ask_dollars)
-  const noMid = noMidProbability(m)
+  const yesMid = yesMidCents(m)
+  const noMid = noMidCents(m)
   const heuristic = categorizeKalshiCryptoMarket(m)
   const mismatch =
     heuristic !== null && heuristic !== row.bucket ? (
@@ -204,7 +338,7 @@ function ExplorerRow({ row }: { row: CryptoExplorerRow }) {
   return (
     <tr className="border-b border-slate-900/80 hover:bg-slate-900/35">
       <td className="px-3 py-2.5 text-slate-300">{row.assetSymbol}</td>
-      <td className="max-w-[220px] truncate px-3 py-2.5 text-cyan-100/95" title={m.ticker}>
+      <td className="truncate px-3 py-2.5 text-cyan-100/95" title={m.ticker}>
         {m.ticker}
       </td>
       <td className="px-3 py-2.5 text-slate-400">
@@ -217,17 +351,19 @@ function ExplorerRow({ row }: { row: CryptoExplorerRow }) {
           : '—'}
       </td>
       <td className="px-3 py-2.5 text-emerald-300">
-        {(yesMidProbability(m) * 100).toFixed(1)}¢
+        {yesMid !== null ? `${yesMid.toFixed(1)}¢` : '—'}
       </td>
       <td className="px-3 py-2.5 text-slate-300">
-        {noBid !== null && noAsk !== null
+        {liquid && noBid !== null && noAsk !== null
           ? `${(noBid * 100).toFixed(1)}¢ / ${(noAsk * 100).toFixed(1)}¢`
           : '—'}
       </td>
-      <td className="px-3 py-2.5 text-rose-300">{(noMid * 100).toFixed(1)}¢</td>
+      <td className="px-3 py-2.5 text-rose-300">
+        {noMid !== null ? `${noMid.toFixed(1)}¢` : '—'}
+      </td>
       <td className="px-3 py-2.5 text-slate-400">{vol.toLocaleString()}</td>
       <td className="px-3 py-2.5">
-        <CloseCountdown closeIso={m.close_time} />
+        <CloseCountdown closeIso={m.close_time} paused={!countdownLive} />
       </td>
     </tr>
   )
@@ -547,17 +683,12 @@ export function KalshiTabbedDashboard() {
   const [tab, setTab] = useState<TabId>('live')
   const [bucket, setBucket] = useState<CryptoExplorerBucket>('15m')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const { loading, refreshMarkets } = useKalshiMarketExplorer()
 
   return (
     <div className="flex min-h-screen flex-col bg-[#020617] text-slate-200">
-      <header className="relative sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
-        <span
-          className="pointer-events-none absolute right-4 top-3 z-10 shrink-0 whitespace-nowrap rounded-md border border-slate-700/80 bg-slate-900/90 px-2 py-0.5 font-mono text-[10px] tabular-nums tracking-wide text-slate-400"
-          title="Build version"
-        >
-          v{APP_VERSION}
-        </span>
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 pr-20 sm:px-6 sm:pr-24">
+      <header className="sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25">
               <LineChart className="size-5 text-emerald-400" aria-hidden />
@@ -569,52 +700,58 @@ export function KalshiTabbedDashboard() {
               <h1 className="font-mono text-lg font-semibold tracking-tight text-white sm:text-xl">
                 Trading dashboard
               </h1>
+              <p
+                className="mt-0.5 font-mono text-[9px] tabular-nums tracking-wide text-slate-600"
+                title="Build version"
+              >
+                v{APP_VERSION}
+              </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <nav className="flex flex-wrap items-center gap-2">
-              <button
-              type="button"
-              onClick={() => setTab('live')}
-              className={
-                tab === 'live'
-                  ? 'inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 font-mono text-[11px] font-semibold text-white ring-1 ring-slate-600'
-                  : 'inline-flex items-center gap-2 rounded-lg border border-transparent px-4 py-2 font-mono text-[11px] text-slate-400 hover:text-white'
-              }
-            >
-              <Layers className="size-4 text-sky-400" aria-hidden />
-              Live markets
-            </button>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               type="button"
-              onClick={() => setTab('labs')}
+              onClick={() => setTab((t) => (t === 'labs' ? 'live' : 'labs'))}
               className={
                 tab === 'labs'
-                  ? 'inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 font-mono text-[11px] font-semibold text-white ring-1 ring-slate-600'
-                  : 'inline-flex items-center gap-2 rounded-lg border border-transparent px-4 py-2 font-mono text-[11px] text-slate-400 hover:text-white'
+                  ? 'inline-flex h-9 items-center gap-2 rounded-lg bg-slate-800 px-4 font-mono text-[11px] font-semibold text-white ring-1 ring-slate-600'
+                  : 'inline-flex h-9 items-center gap-2 rounded-lg border border-transparent px-4 font-mono text-[11px] text-slate-400 hover:text-white'
               }
             >
               <FlaskConical className="size-4 text-violet-400" aria-hidden />
               Trading labs
             </button>
 
+            <BucketToggle bucket={bucket} onChange={setBucket} />
+            <button
+              type="button"
+              onClick={() => void refreshMarkets()}
+              disabled={loading}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 font-mono text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+                aria-hidden
+              />
+              Refresh markets
+            </button>
+
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              className="ml-1 inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-[11px] text-slate-200 hover:border-slate-600"
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 px-3 font-mono text-[11px] text-slate-200 hover:border-slate-600"
               aria-label="Settings"
             >
               <Settings className="size-4" />
             </button>
-            </nav>
           </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
         {tab === 'live' ? (
-          <LiveMarketsPanel bucket={bucket} setBucket={setBucket} />
+          <LiveMarketsPanel bucket={bucket} />
         ) : (
           <TradingLabsPanel />
         )}

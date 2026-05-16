@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.0.13
+
+- **Live markets:** one row per asset (7 symbols) on both 15m and Hourly tabs
+- **Kalshi selection:** soonest open 15m window; hourly headline via highest-volume primary market
+- **Quotes:** stricter liquid-book checks (filters empty 0¢/1¢ books)
+- **Layout:** stable 15m ↔ Hourly switching (dual-render grid, fixed table columns, status line below table)
+- **UX:** missing contracts show `—` in-table; warnings only in footer status line
+
 ## 0.0.0.12
 
 - Header version badge (`v*` from `package.json`) in the top-right of the dashboard

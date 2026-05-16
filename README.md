@@ -1,6 +1,16 @@
 # k-bot2
 
-Kalshi crypto dashboard: live markets explorer + paper trading labs.
+Kalshi crypto **paper-trading dashboard**: live market explorer (15m + hourly) and multi-lab trading engine with local persistence.
+
+**Current version:** see `package.json` and the `v*` badge under **Trading dashboard** in the UI.
+
+## What you get
+
+| Area | Description |
+|------|-------------|
+| **Live markets** | One Kalshi contract per asset (BTC, ETH, SOL, XRP, DOGE, BNB, HYPE) for **15m** (soonest window) and **Hourly** (headline strike). |
+| **Trading labs** | Paper environments with configurable stop-loss presets; shared market snapshots. |
+| **Safety** | Trading killswitch (off by default), balance-drain detection, full reset in Settings. |
 
 ## Run locally
 
@@ -9,93 +19,48 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). **After changing `package.json` version, restart `npm run dev` and hard-refresh the browser** so the header badge updates.
+Open the URL Vite prints (usually **http://localhost:5173**).
+
+After a version bump or pull: **stop** the dev server, run `npm run dev` again, then **hard-refresh** the browser (`Cmd+Shift+R` / `Ctrl+Shift+R`) so the version badge and bundle stay in sync.
+
+## UI quick guide
+
+- **15m / Hourly** (top right) — switch buckets; the table layout stays fixed (both views are pre-rendered).
+- **Refresh markets** — refetch Kalshi contracts.
+- **Trading labs** — open the labs + radar panel.
+- **Settings** — starting balance, full reset (clears `localStorage` engine state).
+
+Missing quotes show as `—` in the table; details appear in the amber line **below** the table.
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Local dev server (Vite) |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+| `npm run verify:version` | Check version strings before release |
+| `npm run preview` | Preview production build |
 
 ## Release / push
 
-Follow **[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)** every time you bump a version or push to GitHub.
+Active development branch: **`dev`**.
 
-Quick verify before commit:
+Follow **[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)** when bumping version or pushing to GitHub.
 
 ```bash
 npm run verify:version
 npm run lint && npm run build
 ```
 
-Changelog: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+History: **[docs/CHANGELOG.md](docs/CHANGELOG.md)**
 
----
+## Stack
 
-## Stack (template notes)
+React 19 · TypeScript · Vite · Tailwind CSS 4 · Recharts (labs radar)
 
-This project uses React + TypeScript + Vite.
+Kalshi public market API (no live order placement in this repo).
 
-Currently, two official plugins are available:
+## Persistence
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Engine state is stored in the browser under `localStorage` key `kalshi-trading-engine-v2`.

@@ -1,14 +1,14 @@
 import {
-  discoverNearestOpenEventTicker,
-  fetchAllMarketsForQuery,
-  isOpenKalshiMarket,
   KALSHI_CRYPTO_ASSETS,
   noMidProbability,
+  pickPrimary15mMarket,
+  pickPrimaryHourlyMarket,
   parseVolume,
   yesMidProbability,
   type KalshiMarket,
 } from './kalshi'
 import type { AssetMarketSnapshot, CryptoSignalSymbol, FrequencyQuote } from '../engine/types'
+import { CRYPTO_SIGNAL_SYMBOLS } from '../engine/types'
 
 export type CryptoExplorerBucket = '15m' | 'hourly'
 
@@ -27,69 +27,59 @@ function quoteFromMarket(m: KalshiMarket): FrequencyQuote {
   }
 }
 
-/** Fetch open crypto contracts for all tracked assets (15m series + current hourly event window per asset). */
+/**
+ * One row per asset per bucket — same 7 symbols on 15m and Hourly tabs.
+ * 15m = soonest open window; hourly = headline strike (highest volume).
+ */
 export async function fetchCryptoExplorerRows(): Promise<CryptoExplorerRow[]> {
-  const batches = await Promise.all(
-    KALSHI_CRYPTO_ASSETS.map(async (asset) => {
-      const rows: CryptoExplorerRow[] = []
+  const rows: CryptoExplorerRow[] = []
 
-      const m15 = await fetchAllMarketsForQuery(
-        { series_ticker: asset.series15m, status: 'open' },
-        8,
-      )
-      for (const m of m15) {
-        rows.push({ assetSymbol: asset.symbol, bucket: '15m', market: m })
-      }
+  for (const asset of KALSHI_CRYPTO_ASSETS) {
+    const [m15, hourly] = await Promise.all([
+      pickPrimary15mMarket(asset.series15m),
+      pickPrimaryHourlyMarket(asset.seriesHourly),
+    ])
 
-      const ev = await discoverNearestOpenEventTicker(asset.seriesHourly, 3)
-      if (ev) {
-        const hourly = await fetchAllMarketsForQuery({ event_ticker: ev, status: 'open' }, 10)
-        const prefix = `${asset.seriesHourly}-`
-        for (const m of hourly) {
-          if (m.ticker.startsWith(prefix)) {
-            rows.push({ assetSymbol: asset.symbol, bucket: 'hourly', market: m })
-          }
-        }
-      }
+    if (m15) {
+      rows.push({ assetSymbol: asset.symbol, bucket: '15m', market: m15 })
+    }
+    if (hourly) {
+      rows.push({ assetSymbol: asset.symbol, bucket: 'hourly', market: hourly })
+    }
+  }
 
-      return rows
-    }),
+  return rows
+}
+
+/** Rows for a bucket in canonical asset order (BTC → HYPE). */
+export function explorerRowsForBucket(
+  rows: CryptoExplorerRow[],
+  bucket: CryptoExplorerBucket,
+): CryptoExplorerRow[] {
+  const byAsset = new Map(
+    rows.filter((r) => r.bucket === bucket).map((r) => [r.assetSymbol, r]),
   )
-
-  return batches.flat()
+  const out: CryptoExplorerRow[] = []
+  for (const sym of CRYPTO_SIGNAL_SYMBOLS) {
+    const row = byAsset.get(sym)
+    if (row) out.push(row)
+  }
+  return out
 }
 
 /**
  * Derive 15m + hourly quotes for one asset from explorer rows.
- * 15m = soonest future close among open 15m contracts; hourly = highest volume strike in current window.
  */
 export function deriveSignalFromExplorer(
   rows: CryptoExplorerRow[],
   symbol: CryptoSignalSymbol,
 ): AssetMarketSnapshot {
-  const now = Date.now()
-
-  const m15 = rows.filter(
-    (r) =>
-      r.assetSymbol === symbol &&
-      r.bucket === '15m' &&
-      isOpenKalshiMarket(r.market) &&
-      Date.parse(r.market.close_time) > now,
-  )
-  const h = rows.filter(
-    (r) =>
-      r.assetSymbol === symbol &&
-      r.bucket === 'hourly' &&
-      isOpenKalshiMarket(r.market) &&
-      Date.parse(r.market.close_time) > now,
-  )
-
-  m15.sort((a, b) => Date.parse(a.market.close_time) - Date.parse(b.market.close_time))
-  h.sort((a, b) => parseVolume(b.market) - parseVolume(a.market))
+  const m15 = rows.find((r) => r.assetSymbol === symbol && r.bucket === '15m')
+  const hourly = rows.find((r) => r.assetSymbol === symbol && r.bucket === 'hourly')
 
   return {
-    fifteen: m15.length ? quoteFromMarket(m15[0].market) : null,
-    hourly: h.length ? quoteFromMarket(h[0].market) : null,
+    fifteen: m15 ? quoteFromMarket(m15.market) : null,
+    hourly: hourly ? quoteFromMarket(hourly.market) : null,
   }
 }
 

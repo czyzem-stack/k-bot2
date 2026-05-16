@@ -23,6 +23,10 @@ export interface KalshiMarket {
   no_ask_dollars?: string
   last_price_dollars?: string
   volume_fp?: string
+  /** Settled outcome: `yes` or `no` when market is finalized. */
+  result?: string
+  settlement_ts?: string
+  settlement_value_dollars?: string
 }
 
 interface GetMarketsResponse {
@@ -161,6 +165,27 @@ export function parseVolume(m: KalshiMarket): number {
   return Number.isFinite(v) ? v : 0
 }
 
+/** Skip empty placeholder books (0 bid / 1¢ ask, zero volume). */
+export function hasLiquidQuote(m: KalshiMarket): boolean {
+  const vol = parseVolume(m)
+  if (vol > 0) return true
+  const bid = parseUsdProbability(m.yes_bid_dollars)
+  const ask = parseUsdProbability(m.yes_ask_dollars)
+  if (bid === null || ask === null) return false
+  if (bid < 0.02 && ask <= 0.05) return false
+  return ask > bid && ask - bid < 0.4
+}
+
+export function yesMidCents(m: KalshiMarket): number | null {
+  if (!hasLiquidQuote(m)) return null
+  return probabilityToCentsMid(yesMidProbability(m))
+}
+
+export function noMidCents(m: KalshiMarket): number | null {
+  if (!hasLiquidQuote(m)) return null
+  return probabilityToCentsMid(noMidProbability(m))
+}
+
 export function priceBiasRelativeToStrike(
   m: KalshiMarket,
   mid: number,
@@ -190,19 +215,13 @@ export function formatStrikeHint(m: KalshiMarket): string | null {
 
 export function isOpenKalshiMarket(m: KalshiMarket): boolean {
   const s = m.status?.toLowerCase()
-  return s === 'active' || s === 'open'
+  return s === 'active' || s === 'open' || s === 'initialized'
 }
 
-function pickSoonestOpenMarket(markets: KalshiMarket[]): KalshiMarket | null {
-  const now = Date.now()
-  const candidates = markets.filter((m) => {
-    if (!isOpenKalshiMarket(m)) return false
-    const t = Date.parse(m.close_time)
-    return Number.isFinite(t) && t > now
-  })
-  if (!candidates.length) return null
-  candidates.sort((a, b) => Date.parse(a.close_time) - Date.parse(b.close_time))
-  return candidates[0]
+/** Hourly series tickers must not pick a 15m contract by mistake. */
+export function isHourlySeriesMarket(m: KalshiMarket, seriesTicker: string): boolean {
+  if (!m.ticker.startsWith(`${seriesTicker}-`)) return false
+  return !/15M/i.test(m.ticker)
 }
 
 /** Discover nearest expiring event for an hourly-style range series. */
@@ -241,39 +260,68 @@ export async function discoverNearestOpenEventTicker(
   return bestEvent
 }
 
-/** Highest-volume market within an event (liquid “headline” strike). */
+function pickBestOpenMarket(
+  markets: KalshiMarket[],
+  mode: 'soonest' | 'volume',
+): KalshiMarket | null {
+  const now = Date.now()
+  const open = markets.filter((m) => {
+    if (!isOpenKalshiMarket(m)) return false
+    const t = Date.parse(m.close_time)
+    return Number.isFinite(t) && t > now
+  })
+  if (!open.length) return null
+
+  const liquid = open.filter(hasLiquidQuote)
+  const pool = liquid.length ? liquid : open
+
+  if (mode === 'soonest') {
+    pool.sort((a, b) => Date.parse(a.close_time) - Date.parse(b.close_time))
+  } else {
+    pool.sort((a, b) => parseVolume(b) - parseVolume(a))
+  }
+  return pool[0]
+}
+
+/** Soonest open 15m contract for a series (one per asset). */
+export async function pickPrimary15mMarket(seriesTicker: string): Promise<KalshiMarket | null> {
+  const markets = await fetchAllMarketsForQuery(
+    { series_ticker: seriesTicker, status: 'open' },
+    10,
+  )
+  return pickBestOpenMarket(markets, 'soonest')
+}
+
+/** Highest-volume headline strike in the nearest hourly event; falls back to series scan. */
 export async function pickPrimaryHourlyMarket(
   seriesTicker: string,
 ): Promise<KalshiMarket | null> {
-  const eventTicker = await discoverNearestOpenEventTicker(seriesTicker)
-  if (!eventTicker) return null
+  const now = Date.now()
+  const eventTicker = await discoverNearestOpenEventTicker(seriesTicker, 8)
 
-  const eventMarkets = await fetchAllMarketsForQuery({
-    event_ticker: eventTicker,
-    status: 'open',
-  })
+  if (eventTicker) {
+    const eventMarkets = await fetchAllMarketsForQuery({
+      event_ticker: eventTicker,
+      status: 'open',
+    }, 15)
 
-  const scoped = eventMarkets.filter(
-    (m) =>
-      isOpenKalshiMarket(m) &&
-      m.ticker.startsWith(`${seriesTicker}-`) &&
-      Date.parse(m.close_time) > Date.now(),
+    const scoped = eventMarkets.filter(
+      (m) =>
+        isHourlySeriesMarket(m, seriesTicker) &&
+        isOpenKalshiMarket(m) &&
+        Date.parse(m.close_time) > now,
+    )
+
+    const picked = pickBestOpenMarket(scoped, 'volume')
+    if (picked) return picked
+  }
+
+  const seriesMarkets = await fetchAllMarketsForQuery(
+    { series_ticker: seriesTicker, status: 'open' },
+    12,
   )
-
-  if (!scoped.length) return null
-
-  scoped.sort((a, b) => parseVolume(b) - parseVolume(a))
-  return scoped[0]
-}
-
-export async function pickPrimary15mMarket(
-  seriesTicker: string,
-): Promise<KalshiMarket | null> {
-  const markets = await fetchAllMarketsForQuery({
-    series_ticker: seriesTicker,
-    status: 'open',
-  })
-  return pickSoonestOpenMarket(markets)
+  const hourlyOnly = seriesMarkets.filter((m) => isHourlySeriesMarket(m, seriesTicker))
+  return pickBestOpenMarket(hourlyOnly, 'volume')
 }
 
 export const KALSHI_CRYPTO_ASSETS = [

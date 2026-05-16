@@ -4,7 +4,7 @@ Use this **every time** you bump a version, ship to GitHub, or say **“push”*
 
 ## 1. Bump version (one source of truth)
 
-Edit **`package.json`** → `"version"` (e.g. `0.0.0.13`).
+Edit **`package.json`** → `"version"` (e.g. `0.0.0.14`).
 
 Then sync these (do not skip):
 
@@ -33,7 +33,7 @@ npm run dev
 In the browser:
 
 1. Hard refresh (`Cmd+Shift+R` / `Ctrl+Shift+R`)
-2. Confirm **top-right of header** shows `v{VERSION}` (e.g. `v0.0.0.12`)
+2. Confirm version under **Trading dashboard** shows `v{VERSION}` (e.g. `v0.0.0.13`)
 3. Confirm browser tab title matches
 
 ## 3. Build check
@@ -46,26 +46,26 @@ npm run build
 ## 4. Git
 
 ```bash
-git checkout v0.0.0.12   # or your working branch
+git checkout dev
 git status
 git add -A
 git commit -m "Release vX.Y.Z: short summary."
-git push origin v0.0.0.12
+git push origin dev
 ```
 
 ## 5. Promote to `main` (when stable)
 
 ```bash
 git checkout main
-git merge v0.0.0.12
+git merge dev
 git push origin main
 ```
 
-Optional: push a release tag branch `v0.0.0.1` if you keep a release line.
+Optional: keep version branches (e.g. `v0.0.0.12`) for tagged release lines if needed.
 
 ## 6. Agent phrase (copy/paste)
 
-> **Housekeeping release v0.0.0.13:** bump version everywhere in the checklist, update CHANGELOG, run `verify:version`, commit on `v0.0.0.12`, push, remind me to restart `npm run dev` and hard-refresh.
+> **Housekeeping release v0.0.0.14:** bump version everywhere in the checklist, update CHANGELOG, run `verify:version`, commit on `dev`, push, remind me to restart `npm run dev` and hard-refresh.
 
 ## Common mistake
 
