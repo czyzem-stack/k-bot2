@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.0.14
+
+- **Header:** Kbot2 branding, unified toolbar controls (emerald accent), stable layout across Live/Labs
+
 ## 0.0.0.13
 
 - **Live markets:** one row per asset (7 symbols) on both 15m and Hourly tabs
