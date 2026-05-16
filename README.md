@@ -1,6 +1,34 @@
-# React + TypeScript + Vite
+# k-bot2
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Kalshi crypto dashboard: live markets explorer + paper trading labs.
+
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open the URL Vite prints (usually `http://localhost:5173`). **After changing `package.json` version, restart `npm run dev` and hard-refresh the browser** so the header badge updates.
+
+## Release / push
+
+Follow **[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)** every time you bump a version or push to GitHub.
+
+Quick verify before commit:
+
+```bash
+npm run verify:version
+npm run lint && npm run build
+```
+
+Changelog: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+
+---
+
+## Stack (template notes)
+
+This project uses React + TypeScript + Vite.
 
 Currently, two official plugins are available:
 

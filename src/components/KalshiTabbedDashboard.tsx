@@ -19,6 +19,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from 'recharts'
+import { APP_VERSION } from '../lib/appVersion'
 import { useTradingEngine } from '../hooks/useTradingEngine'
 import { useKalshiMarketExplorer } from '../hooks/useKalshiMarketExplorer'
 import { buildRadarData } from '../engine/radarMetrics'
@@ -549,8 +550,14 @@ export function KalshiTabbedDashboard() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#020617] text-slate-200">
-      <header className="sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+      <header className="relative sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
+        <span
+          className="pointer-events-none absolute right-4 top-3 z-10 shrink-0 whitespace-nowrap rounded-md border border-slate-700/80 bg-slate-900/90 px-2 py-0.5 font-mono text-[10px] tabular-nums tracking-wide text-slate-400"
+          title="Build version"
+        >
+          v{APP_VERSION}
+        </span>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 pr-20 sm:px-6 sm:pr-24">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25">
               <LineChart className="size-5 text-emerald-400" aria-hidden />
@@ -601,12 +608,6 @@ export function KalshiTabbedDashboard() {
               <Settings className="size-4" />
             </button>
             </nav>
-            <span
-              className="rounded-md border border-slate-800/80 bg-slate-900/50 px-2 py-1 font-mono text-[10px] tabular-nums tracking-wide text-slate-500"
-              title="Build version"
-            >
-              v{__APP_VERSION__}
-            </span>
           </div>
         </div>
       </header>
