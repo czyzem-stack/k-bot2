@@ -565,8 +565,9 @@ export function KalshiTabbedDashboard() {
             </div>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-2">
-            <button
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <nav className="flex flex-wrap items-center gap-2">
+              <button
               type="button"
               onClick={() => setTab('live')}
               className={
@@ -599,7 +600,14 @@ export function KalshiTabbedDashboard() {
             >
               <Settings className="size-4" />
             </button>
-          </nav>
+            </nav>
+            <span
+              className="rounded-md border border-slate-800/80 bg-slate-900/50 px-2 py-1 font-mono text-[10px] tabular-nums tracking-wide text-slate-500"
+              title="Build version"
+            >
+              v{__APP_VERSION__}
+            </span>
+          </div>
         </div>
       </header>
 
