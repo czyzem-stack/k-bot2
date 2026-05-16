@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174 --strictPort",
-    "dev:main": "bash scripts/dev-main.sh",
-    "dev:dev": "vite --port 5174 --strictPort",
-    "dev:both": "bash scripts/dev-dual.sh",
+    "dev:all": "bash scripts/dev-all.sh",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

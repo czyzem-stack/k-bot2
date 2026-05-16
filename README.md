@@ -15,21 +15,24 @@ Kalshi crypto **paper-trading dashboard**: live market explorer (15m + hourly) a
 ## Run locally
 
 ```bash
-npm install
-npm run dev          # dev branch → http://localhost:5174
+npm run dev:all      # one script: worktree + install + both servers
 ```
 
-### Compare **main** and **dev** side by side
+| URL | Branch |
+|-----|--------|
+| http://localhost:5173 | `main` (worktree at `worktrees/main`) |
+| http://localhost:5174 | `dev` (this checkout) |
 
-Uses a [git worktree](https://git-scm.com/docs/git-worktree) at `worktrees/main` (created automatically):
+Options (same script):
 
-| Command | URL | Branch |
-|---------|-----|--------|
-| `npm run dev:both` | **5173** = main, **5174** = dev | both at once |
-| `npm run dev:main` | http://localhost:5173 | `main` |
-| `npm run dev:dev` | http://localhost:5174 | current checkout (usually `dev`) |
+```bash
+./scripts/dev-all.sh           # both (default)
+./scripts/dev-all.sh --main    # main only
+./scripts/dev-all.sh --dev     # dev only
+./scripts/dev-all.sh --setup   # worktree + npm install, no servers
+```
 
-First run of `dev:both` / `dev:main` runs `npm install` in the worktree if needed.
+Single-branch dev: `npm run dev` → port **5174** only.
 
 After a version bump or pull: **stop** the dev server, run `npm run dev` again, then **hard-refresh** the browser (`Cmd+Shift+R` / `Ctrl+Shift+R`) so the version badge and bundle stay in sync.
 
@@ -46,10 +49,8 @@ Missing quotes show as `—` in the table; details appear in the amber line **be
 
 | Command | Purpose |
 |---------|---------|
-| `npm run dev` | Dev server on port **5174** (current branch) |
-| `npm run dev:both` | Main on **5173** + dev on **5174** |
-| `npm run dev:main` | Main only on **5173** |
-| `npm run dev:dev` | Dev only on **5174** |
+| `npm run dev:all` | Setup + main **5173** + dev **5174** |
+| `npm run dev` | Current branch only on **5174** |
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
 | `npm run verify:version` | Check version strings before release |
