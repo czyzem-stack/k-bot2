@@ -46,11 +46,49 @@ export function spotPairForSymbol(symbol: string): string {
 }
 
 export function assetChartConfigs(): AssetChartConfig[] {
-  return KALSHI_CRYPTO_ASSETS.map((a) => ({
-    symbol: a.symbol,
-    label: a.label,
-    spotPair: spotPairForSymbol(a.symbol),
-  }))
+  return ASSET_CHART_CONFIGS
+}
+
+/** Stable configs — avoids effect loops from new object identity each render. */
+export const ASSET_CHART_CONFIGS: AssetChartConfig[] = KALSHI_CRYPTO_ASSETS.map((a) => ({
+  symbol: a.symbol,
+  label: a.label,
+  spotPair: spotPairForSymbol(a.symbol),
+}))
+
+const CACHE_TTL_MS = 120_000
+const candleCache = new Map<string, { at: number; candles: OhlcCandle[] }>()
+
+export function cacheKey(pair: string, tf: CandleTimeframeId): string {
+  return `${pair}:${tf}`
+}
+
+export function readCandleCache(pair: string, tf: CandleTimeframeId): OhlcCandle[] | null {
+  const hit = candleCache.get(cacheKey(pair, tf))
+  if (!hit || Date.now() - hit.at >= CACHE_TTL_MS) return null
+  return hit.candles
+}
+
+export function writeCandleCache(pair: string, tf: CandleTimeframeId, candles: OhlcCandle[]): void {
+  if (!candles.length) {
+    candleCache.delete(cacheKey(pair, tf))
+    return
+  }
+  candleCache.set(cacheKey(pair, tf), { at: Date.now(), candles })
+}
+
+export function invalidateCandleCache(pair: string, tf: CandleTimeframeId): void {
+  candleCache.delete(cacheKey(pair, tf))
+}
+
+/** Warm cache for other horizons so tab switches feel instant. */
+export function prefetchCandlesForPair(pair: string): void {
+  for (const tf of CANDLE_TIMEFRAMES) {
+    if (readCandleCache(pair, tf.id)) continue
+    void fetchCryptoCandles(pair, tf.id)
+      .then((data) => writeCandleCache(pair, tf.id, data))
+      .catch(() => {})
+  }
 }
 
 function formatCandleLabel(ts: number, timeframe: CandleTimeframeId): string {

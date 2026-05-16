@@ -1,88 +1,153 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import {
-  assetChartConfigs,
+  ASSET_CHART_CONFIGS,
   fetchCryptoCandles,
+  invalidateCandleCache,
+  prefetchCandlesForPair,
+  readCandleCache,
   type AssetChartConfig,
   type CandleTimeframeId,
   type OhlcCandle,
+  writeCandleCache,
 } from '../lib/cryptoCandles'
 
-const CACHE_TTL_MS = 45_000
-const cache = new Map<string, { at: number; candles: OhlcCandle[] }>()
+type CandleState = {
+  candles: OhlcCandle[]
+  loading: boolean
+  fetching: boolean
+  error: string | null
+}
 
-function cacheKey(pair: string, tf: CandleTimeframeId): string {
-  return `${pair}:${tf}`
+type Action =
+  | { type: 'select'; pair: string; timeframe: CandleTimeframeId; refreshKey: number }
+  | { type: 'fetching' }
+  | { type: 'success'; candles: OhlcCandle[] }
+  | { type: 'failure'; message: string }
+  | { type: 'no_config'; symbol: string }
+
+function initFromCache(pair: string, timeframe: CandleTimeframeId): CandleState {
+  if (!pair) {
+    return { candles: [], loading: false, fetching: false, error: null }
+  }
+  const cached = readCandleCache(pair, timeframe)
+  return {
+    candles: cached ?? [],
+    loading: !cached,
+    fetching: !cached,
+    error: null,
+  }
+}
+
+function reducer(state: CandleState, action: Action): CandleState {
+  switch (action.type) {
+    case 'no_config':
+      return {
+        candles: [],
+        loading: false,
+        fetching: false,
+        error: `No chart config for ${action.symbol}`,
+      }
+    case 'select': {
+      const cached = readCandleCache(action.pair, action.timeframe)
+      if (cached) {
+        return {
+          candles: cached,
+          loading: false,
+          fetching: action.refreshKey > 0,
+          error: null,
+        }
+      }
+      if (state.candles.length > 0 && action.refreshKey > 0) {
+        return { ...state, fetching: true, error: null }
+      }
+      return { candles: [], loading: true, fetching: true, error: null }
+    }
+    case 'fetching':
+      return { ...state, fetching: true }
+    case 'success':
+      return {
+        candles: action.candles,
+        loading: false,
+        fetching: false,
+        error: null,
+      }
+    case 'failure':
+      return {
+        ...state,
+        loading: false,
+        fetching: false,
+        error: action.message,
+        candles: state.candles.length > 0 ? state.candles : [],
+      }
+    default:
+      return state
+  }
 }
 
 export function useCryptoCandles(symbol: string, timeframe: CandleTimeframeId) {
-  const configs = assetChartConfigs()
-  const config: AssetChartConfig | undefined = configs.find((c) => c.symbol === symbol)
+  const config: AssetChartConfig | undefined = ASSET_CHART_CONFIGS.find(
+    (c) => c.symbol === symbol,
+  )
+  const pair = config?.spotPair ?? ''
 
-  const [candles, setCandles] = useState<OhlcCandle[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const [state, dispatch] = useReducer(
+    reducer,
+    { pair, timeframe },
+    ({ pair: p, timeframe: tf }) => initFromCache(p, tf),
+  )
+
+  const requestIdRef = useRef(0)
+  const [refreshKey, bumpRefresh] = useReducer((n: number) => n + 1, 0)
 
   useEffect(() => {
-    if (!config) {
-      const t = window.setTimeout(() => {
-        setCandles([])
-        setError(`No chart config for ${symbol}`)
-        setLoading(false)
-      }, 0)
-      return () => window.clearTimeout(t)
+    if (!pair) {
+      dispatch({ type: 'no_config', symbol })
+      return
     }
 
+    dispatch({ type: 'select', pair, timeframe, refreshKey })
+
+    const cached = readCandleCache(pair, timeframe)
+    if (cached && refreshKey === 0) {
+      return
+    }
+
+    const requestId = ++requestIdRef.current
     const ac = new AbortController()
-    const key = cacheKey(config.spotPair, timeframe)
-    const hit = cache.get(key)
+    dispatch({ type: 'fetching' })
 
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-      const t = window.setTimeout(() => {
-        setCandles(hit.candles)
-        setError(null)
-        setLoading(false)
-      }, 0)
-      return () => {
-        window.clearTimeout(t)
-        ac.abort()
-      }
-    }
-
-    const t0 = window.setTimeout(() => {
-      setLoading(true)
-      setError(null)
-    }, 0)
-
-    void fetchCryptoCandles(config.spotPair, timeframe, ac.signal)
+    void fetchCryptoCandles(pair, timeframe, ac.signal)
       .then((data) => {
-        if (ac.signal.aborted) return
-        cache.set(key, { at: Date.now(), candles: data })
-        setCandles(data)
-        setLoading(false)
+        if (ac.signal.aborted || requestId !== requestIdRef.current) return
+        writeCandleCache(pair, timeframe, data)
+        dispatch({ type: 'success', candles: data })
       })
       .catch((e) => {
-        if (ac.signal.aborted) return
-        setCandles([])
-        setError(e instanceof Error ? e.message : 'Failed to load candles')
-        setLoading(false)
+        if (ac.signal.aborted || requestId !== requestIdRef.current) return
+        dispatch({
+          type: 'failure',
+          message: e instanceof Error ? e.message : 'Failed to load candles',
+        })
       })
 
-    return () => {
-      window.clearTimeout(t0)
-      ac.abort()
-    }
-  }, [config, symbol, timeframe, refreshKey])
+    return () => ac.abort()
+  }, [pair, timeframe, refreshKey, symbol])
+
+  useEffect(() => {
+    if (!pair) return
+    prefetchCandlesForPair(pair)
+  }, [pair])
 
   return {
-    candles,
-    loading,
-    error,
+    candles: state.candles,
+    loading: state.loading,
+    fetching: state.fetching,
+    error: state.error,
     config,
-    assetConfigs: configs,
+    assetConfigs: ASSET_CHART_CONFIGS,
     refresh: () => {
-      if (config) cache.delete(cacheKey(config.spotPair, timeframe))
-      setRefreshKey((k) => k + 1)
+      if (pair) invalidateCandleCache(pair, timeframe)
+      bumpRefresh()
     },
   }
 }

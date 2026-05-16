@@ -186,7 +186,10 @@ export const AssetCandleChartPanel = memo(function AssetCandleChartPanel() {
   const [symbol, setSymbol] = useState<string>(CRYPTO_SIGNAL_SYMBOLS[0])
   const [timeframe, setTimeframe] = useState<CandleTimeframeId>('intraday')
 
-  const { candles, loading, error, config, refresh } = useCryptoCandles(symbol, timeframe)
+  const { candles, loading, fetching, error, config, refresh } = useCryptoCandles(
+    symbol,
+    timeframe,
+  )
 
   const last = candles[candles.length - 1]
   const changePct =
@@ -260,17 +263,24 @@ export const AssetCandleChartPanel = memo(function AssetCandleChartPanel() {
         </button>
       </div>
 
-      <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 p-2">
-        {loading && !candles.length ? (
+      <div className="relative rounded-xl border border-slate-800/90 bg-slate-950/60 p-2">
+        {loading && candles.length === 0 ? (
           <div className="flex h-[320px] items-center justify-center font-mono text-xs text-slate-500">
             Loading candles…
           </div>
-        ) : error ? (
+        ) : error && candles.length === 0 ? (
           <div className="flex h-[320px] items-center justify-center px-4 text-center font-mono text-xs text-amber-200/90">
             {error}
           </div>
         ) : (
-          <CandleChart candles={candles} symbol={symbol} />
+          <>
+            <CandleChart candles={candles} symbol={symbol} />
+            {fetching ? (
+              <div className="pointer-events-none absolute right-3 top-3 rounded-md border border-slate-700/80 bg-slate-950/90 px-2 py-1 font-mono text-[10px] text-slate-400">
+                Updating…
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </section>
