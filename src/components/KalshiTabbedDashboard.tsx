@@ -52,6 +52,12 @@ const ENV_GRID_ORDER: EnvId[] = ['live', ...LAB_IDS]
 
 const LAB_COLORS = ['#34d399', '#a78bfa', '#fbbf24', '#22d3ee', '#fb7185']
 
+/** Shared header control chrome (toolbar right). */
+const HDR_BTN =
+  'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-700/90 bg-slate-900/80 px-3 font-mono text-[11px] font-medium text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50'
+const HDR_BTN_ON =
+  'border-emerald-500/40 bg-emerald-500/10 text-emerald-50 ring-1 ring-emerald-500/25 hover:border-emerald-500/50 hover:bg-emerald-500/15'
+
 function fmtUsd(n: number): string {
   return n.toLocaleString(undefined, {
     style: 'currency',
@@ -69,7 +75,7 @@ function BucketToggle({
 }) {
   return (
     <div
-      className="flex h-9 items-center rounded-full bg-slate-900/90 p-0.5 ring-1 ring-slate-700"
+      className={`${HDR_BTN} gap-0 p-0.5`}
       role="group"
       aria-label="Market timeframe"
     >
@@ -80,8 +86,8 @@ function BucketToggle({
           onClick={() => onChange(b)}
           className={
             bucket === b
-              ? 'h-full rounded-full bg-sky-500/25 px-4 font-mono text-[11px] font-semibold text-sky-100 ring-1 ring-sky-500/35'
-              : 'h-full rounded-full px-4 font-mono text-[11px] font-medium text-slate-400 hover:text-slate-200'
+              ? 'h-[calc(2.25rem-4px)] rounded-md bg-emerald-500/20 px-3.5 font-mono text-[11px] font-semibold text-emerald-50 ring-1 ring-emerald-500/30'
+              : 'h-[calc(2.25rem-4px)] rounded-md px-3.5 font-mono text-[11px] font-medium text-slate-400 hover:text-slate-200'
           }
         >
           {b === '15m' ? '15m' : 'Hourly'}
@@ -690,16 +696,14 @@ export function KalshiTabbedDashboard() {
       <header className="sticky top-0 z-50 border-b border-slate-800/90 bg-slate-950/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-slate-700/90 bg-slate-900/80 ring-1 ring-emerald-500/20">
               <LineChart className="size-5 text-emerald-400" aria-hidden />
             </div>
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-emerald-400/90">
-                Kalshi crypto
-              </p>
               <h1 className="font-mono text-lg font-semibold tracking-tight text-white sm:text-xl">
-                Trading dashboard
+                Kbot2
               </h1>
+              <p className="font-mono text-[11px] text-slate-500">Trading dashboard</p>
               <p
                 className="mt-0.5 font-mono text-[9px] tabular-nums tracking-wide text-slate-600"
                 title="Build version"
@@ -709,29 +713,28 @@ export function KalshiTabbedDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setTab((t) => (t === 'labs' ? 'live' : 'labs'))}
-              className={
-                tab === 'labs'
-                  ? 'inline-flex h-9 items-center gap-2 rounded-lg bg-slate-800 px-4 font-mono text-[11px] font-semibold text-white ring-1 ring-slate-600'
-                  : 'inline-flex h-9 items-center gap-2 rounded-lg border border-transparent px-4 font-mono text-[11px] text-slate-400 hover:text-white'
-              }
+              className={`${HDR_BTN} ${tab === 'labs' ? HDR_BTN_ON : ''}`}
             >
-              <FlaskConical className="size-4 text-violet-400" aria-hidden />
+              <FlaskConical className="size-4 text-emerald-400/90" aria-hidden />
               Trading labs
             </button>
 
-            <BucketToggle bucket={bucket} onChange={setBucket} />
+            <div className={tab === 'live' ? '' : 'pointer-events-none invisible'}>
+              <BucketToggle bucket={bucket} onChange={setBucket} />
+            </div>
+
             <button
               type="button"
               onClick={() => void refreshMarkets()}
               disabled={loading}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 font-mono text-[11px] text-slate-200 hover:border-slate-600 disabled:opacity-50"
+              className={HDR_BTN}
             >
               <RefreshCw
-                className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+                className={`size-4 text-emerald-400/80 ${loading ? 'animate-spin' : ''}`}
                 aria-hidden
               />
               Refresh markets
@@ -740,10 +743,10 @@ export function KalshiTabbedDashboard() {
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 px-3 font-mono text-[11px] text-slate-200 hover:border-slate-600"
+              className={`${HDR_BTN} px-2.5`}
               aria-label="Settings"
             >
-              <Settings className="size-4" />
+              <Settings className="size-4 text-slate-300" aria-hidden />
             </button>
           </div>
         </div>
